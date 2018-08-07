@@ -3,7 +3,6 @@ build:
 	stack build --fast --haddock-deps --copy-bins --file-watch
 docs:
 	stack haddock --open
-	stack hoogle bugué pour le moment
 	stack hoogle -- generate --local
 	stack hoogle -- server --local --port=8080
 test:
