@@ -11,7 +11,17 @@ data Suit = Clubs
           | Diamonds
           | Hearts
           | Spades
-          deriving (Eq,Enum,Show,Bounded)
+          deriving (Eq,Enum,Bounded)
+
+instance Show Suit where
+  show Clubs = "♧"
+  show Diamonds = "♦"
+  show Hearts = "♥"
+  show Spades = "♤"
+  -- show Diamonds = "♢"
+  -- show Hearts = "♡"
+  -- show Clubs = "♣"
+  -- show Spades = "♠"
 
 data Rank = Seven
           | Eight
@@ -21,13 +31,27 @@ data Rank = Seven
           | Queen
           | King
           | Ace
-          deriving (Eq,Enum,Show,Bounded)
+          deriving (Eq,Enum,Bounded)
+
+instance Show Rank where
+  show Seven = "7"
+  show Eight = "8"
+  show Nine = "9"
+  show Ten = "10"
+  show Jack = "J"
+  show Queen = "Q"
+  show King = "K"
+  show Ace = "A"
 
 data Card = Card { rank :: Rank
                  , suit  :: Suit
-                 } deriving (Eq,Show)
+                 } deriving (Eq)
+
+instance Show Card where
+  show (Card rank suit ) = "[" ++ (show rank) ++ " " ++ (show suit) ++ "]"
 
 type Deck = [Card]
+type Hand = [Card]
 
 sortedDeck :: Deck
 sortedDeck = [Card rank suit | rank <- [Seven .. Ace],  suit <- [Clubs .. Spades]]
