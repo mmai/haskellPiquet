@@ -2,10 +2,16 @@ module Data ( Suit(..)
             , Rank(..)
             , Card(..)
             , Deck
+            , Hand
             , sortedDeck
+            , drawCards
+            , initDeckState
             , takeCard
+            , takeCards
             , follows
             ) where
+
+import Control.Monad.State
 
 data Suit = Clubs
           | Diamonds
@@ -14,14 +20,14 @@ data Suit = Clubs
           deriving (Eq,Enum,Bounded)
 
 instance Show Suit where
-  show Clubs = "♧"
   show Diamonds = "♦"
   show Hearts = "♥"
-  show Spades = "♤"
+  show Clubs = "♣"
+  show Spades = "♠"
+  -- show Spades = "♤"
+  -- show Clubs = "♧"
   -- show Diamonds = "♢"
   -- show Hearts = "♡"
-  -- show Clubs = "♣"
-  -- show Spades = "♠"
 
 data Rank = Seven
           | Eight
@@ -61,7 +67,32 @@ takeCard :: Deck -> (Maybe Card, Deck)
 takeCard []     = (Nothing, [])
 takeCard (c:cs) = (Just c, cs)
 
+takeCards :: Deck -> Int -> (Hand, Deck)
+takeCards d n = splitAt n d
+
+initDeckState :: Deck -> State Deck ()
+initDeckState  = put 
+
+getDeck :: State Deck Deck
+getDeck = get
+
+drawCards :: Int -> State Deck Hand
+drawCards n = do
+  d <- get
+  let (hand, newDeck) = takeCards d n
+  put newDeck
+  return hand
+
 -- |Does the second card follow the first?
 follows :: Card -> Card -> Bool
 follows (Card Ace _) _ = False
 follows c1 c2          = succ (rank c1) == rank c2 && suit c1 == suit c2
+
+--------------------- Piquet
+
+data Player = Player { hand :: Hand
+                     , roundPoints :: Int
+                     , gamePoints :: Int
+                     , points :: Int
+                     , name :: String
+                     } deriving (Show)
