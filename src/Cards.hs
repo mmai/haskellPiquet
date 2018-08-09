@@ -61,6 +61,8 @@ type Hand = [Card]
 sortedDeck :: Deck
 sortedDeck = [Card rank suit | rank <- [Seven .. Ace],  suit <- [Clubs .. Spades]]
 
+---- Drawings
+
 takeCard :: Deck -> (Maybe Card, Deck)
 takeCard []     = (Nothing, [])
 takeCard (c:cs) = (Just c, cs)
@@ -81,16 +83,15 @@ drawHandsST ncards nhands = replicateM nhands $ drawCards ncards
 drawHands :: Deck -> Int -> Int -> ([Hand], Deck) 
 drawHands deck ncards nhands = runState (drawHandsST ncards nhands) deck
 
+---- Combinations
+
+combinationPoints :: Hand -> (Int, Int)
+combinationPoints h = (5, 30)
+
+----
+
 -- |Does the second card follow the first?
 follows :: Card -> Card -> Bool
 follows (Card Ace _) _ = False
 follows c1 c2          = succ (rank c1) == rank c2 && suit c1 == suit c2
 
---------------------- Piquet
-
-data Player = Player { hand :: Hand
-                     , roundPoints :: Int
-                     , gamePoints :: Int
-                     , points :: Int
-                     , name :: String
-                     } deriving (Show)
