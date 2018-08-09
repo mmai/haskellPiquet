@@ -1,11 +1,10 @@
-module Data ( Suit(..)
+module Cards ( Suit(..)
             , Rank(..)
             , Card(..)
             , Deck
             , Hand
             , sortedDeck
-            , drawCards
-            , initDeckState
+            , drawHands
             , takeCard
             , takeCards
             , follows
@@ -62,7 +61,6 @@ type Hand = [Card]
 sortedDeck :: Deck
 sortedDeck = [Card rank suit | rank <- [Seven .. Ace],  suit <- [Clubs .. Spades]]
 
--- This is really a State monad
 takeCard :: Deck -> (Maybe Card, Deck)
 takeCard []     = (Nothing, [])
 takeCard (c:cs) = (Just c, cs)
@@ -70,18 +68,18 @@ takeCard (c:cs) = (Just c, cs)
 takeCards :: Deck -> Int -> (Hand, Deck)
 takeCards d n = splitAt n d
 
-initDeckState :: Deck -> State Deck ()
-initDeckState  = put 
-
-getDeck :: State Deck Deck
-getDeck = get
-
 drawCards :: Int -> State Deck Hand
 drawCards n = do
   d <- get
   let (hand, newDeck) = takeCards d n
   put newDeck
   return hand
+
+drawHandsST :: Int -> Int -> State Deck [Hand]
+drawHandsST ncards nhands = replicateM nhands $ drawCards ncards
+
+drawHands :: Deck -> Int -> Int -> ([Hand], Deck) 
+drawHands deck ncards nhands = runState (drawHandsST ncards nhands) deck
 
 -- |Does the second card follow the first?
 follows :: Card -> Card -> Bool

@@ -2,9 +2,9 @@ name:                piquet
 version:             0.1.0.0
 github:              "githubuser/piquet"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2018 Author name here"
+author:              "Henri Bourcereau"
+maintainer:          "henri@bourcereau.fr"
+copyright:           "2018 Henri Bourcereau"
 
 extra-source-files:
 - README.md
@@ -24,6 +24,7 @@ dependencies:
 - array
 - random
 - mtl
+- rainbow
 
 library:
   source-dirs: src
