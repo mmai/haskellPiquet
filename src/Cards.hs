@@ -4,19 +4,21 @@ module Cards ( Suit(..)
             , Deck
             , Hand
             , sortedDeck
+            , changeCards
             , drawHands
-            , takeCard
             , takeCards
             , follows
             ) where
 
 import Control.Monad.State
+import Data.Set.Ordered
+import Data.Foldable (toList)
 
 data Suit = Clubs
           | Diamonds
           | Hearts
           | Spades
-          deriving (Eq,Enum,Bounded)
+          deriving (Eq,Enum,Ord,Bounded)
 
 instance Show Suit where
   show Diamonds = "♦"
@@ -36,7 +38,7 @@ data Rank = Seven
           | Queen
           | King
           | Ace
-          deriving (Eq,Enum,Bounded)
+          deriving (Eq,Enum,Ord,Bounded)
 
 instance Show Rank where
   show Seven = "7"
@@ -50,25 +52,22 @@ instance Show Rank where
 
 data Card = Card { rank :: Rank
                  , suit  :: Suit
-                 } deriving (Eq)
+                 } deriving (Eq, Ord)
 
 instance Show Card where
   show (Card rank suit ) = "[" ++ (show rank) ++ " " ++ (show suit) ++ "]"
 
-type Deck = [Card]
-type Hand = [Card]
+type Deck = OSet Card
+type Hand = OSet Card
 
 sortedDeck :: Deck
-sortedDeck = [Card rank suit | rank <- [Seven .. Ace],  suit <- [Clubs .. Spades]]
+sortedDeck = fromList [Card rank suit | rank <- [Seven .. Ace],  suit <- [Clubs .. Spades]]
 
 ---- Drawings
 
-takeCard :: Deck -> (Maybe Card, Deck)
-takeCard []     = (Nothing, [])
-takeCard (c:cs) = (Just c, cs)
-
 takeCards :: Deck -> Int -> (Hand, Deck)
-takeCards d n = splitAt n d
+takeCards d n = let (lhand, ldeck) = splitAt n (toList d)
+                 in (fromList lhand, fromList ldeck)
 
 drawCards :: Int -> State Deck Hand
 drawCards n = do
@@ -82,6 +81,15 @@ drawHandsST ncards nhands = replicateM nhands $ drawCards ncards
 
 drawHands :: Deck -> Int -> Int -> ([Hand], Deck) 
 drawHands deck ncards nhands = runState (drawHandsST ncards nhands) deck
+
+-- Remove cards from a hand and replace them by cards from the deck
+-- only remove cards really existing in the hand
+changeCards :: Deck -> Hand -> OSet Card -> (Hand, Deck)
+changeCards deck hand cardsToRemove = 
+  let hand' = hand \\ cardsToRemove
+      (drawnCards, newDeck) = takeCards deck (size hand - size hand') 
+      newHand = hand' <>| drawnCards
+   in (newHand, newDeck)
 
 ---- Combinations
 

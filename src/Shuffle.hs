@@ -1,17 +1,19 @@
-module Shuffle (shuffle, shuffleIO) where
+module Shuffle (shuffleIO) where
 
 import System.Random
 import Data.Array.ST
 import Control.Monad
 import Control.Monad.ST
 import Data.STRef
+import Data.Foldable (toList)
+import Data.Set.Ordered
 
 -- Source : https://wiki.haskell.org/Random_shuffle 
  
 -- | Randomly shuffle a list without the IO Monad
 --   /O(N)/
-shuffle :: [a] -> StdGen -> ([a],StdGen)
-shuffle xs gen = runST (do
+shuffleList :: [a] -> StdGen -> ([a],StdGen)
+shuffleList xs gen = runST (do
         g <- newSTRef gen
         let randomRST lohi = do
               (a,s') <- fmap (randomR lohi) (readSTRef g)
@@ -31,5 +33,8 @@ shuffle xs gen = runST (do
     newArray :: Int -> [a] -> ST s (STArray s Int a)
     newArray n =  newListArray (1,n)
 
-shuffleIO :: [a] -> IO [a]
-shuffleIO xs = getStdRandom (shuffle xs)
+shuffleListIO :: [a] -> IO [a]
+shuffleListIO xs = getStdRandom (shuffleList xs)
+
+shuffleIO :: Ord a => OSet a -> IO (OSet a)
+shuffleIO xs = fmap fromList $ getStdRandom (shuffleList $ toList xs)

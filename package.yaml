@@ -25,6 +25,8 @@ dependencies:
 - random
 - mtl
 - rainbow
+- containers
+- ordered-containers
 
 library:
   source-dirs: src
