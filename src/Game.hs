@@ -9,6 +9,8 @@ import Shuffle
 import Data.List.Split (splitOn)
 import Data.Set.Ordered
 import Control.Monad.State
+import Data.Function
+import Control.Arrow
 import Rainbow
 
  
@@ -50,9 +52,7 @@ shuffle = do
   put $ state { deck = shuffledDeck }
 
 showDeck :: GameAction
-showDeck = do
-  state <- get
-  lift . print $ deck state
+showDeck = get >>= (deck >>> print >>> lift) 
 
 data Role = Elder | Younger deriving (Show)
 
