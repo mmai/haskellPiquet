@@ -2,5 +2,5 @@ module Main where
 
 import Game
 
-main :: IO ()
+main :: IO Game
 main = play

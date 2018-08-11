@@ -4,9 +4,11 @@ module Cards ( Suit(..)
             , Deck
             , Hand
             , sortedDeck
+            , noCards
             , changeCards
             , drawHands
-            , takeCards
+            , takeNCards
+            , getCardsAtPos
             , follows
             ) where
 
@@ -63,16 +65,22 @@ type Hand = OSet Card
 sortedDeck :: Deck
 sortedDeck = fromList [Card rank suit | rank <- [Seven .. Ace],  suit <- [Clubs .. Spades]]
 
+noCards :: OSet Card
+noCards = fromList []
+
 ---- Drawings
 
-takeCards :: Deck -> Int -> (Hand, Deck)
-takeCards d n = let (lhand, ldeck) = splitAt n (toList d)
+takeNCards :: Deck -> Int -> (Hand, Deck)
+takeNCards d n = let (lhand, ldeck) = splitAt n (toList d)
                  in (fromList lhand, fromList ldeck)
+
+getCardsAtPos :: Hand -> [Int] -> [Card]
+getCardsAtPos hand indices = (toList hand !!) <$> indices
 
 drawCards :: Int -> State Deck Hand
 drawCards n = do
   d <- get
-  let (hand, newDeck) = takeCards d n
+  let (hand, newDeck) = takeNCards d n
   put newDeck
   return hand
 
@@ -87,7 +95,7 @@ drawHands deck ncards nhands = runState (drawHandsST ncards nhands) deck
 changeCards :: Deck -> Hand -> OSet Card -> (Hand, Deck)
 changeCards deck hand cardsToRemove = 
   let hand' = hand \\ cardsToRemove
-      (drawnCards, newDeck) = takeCards deck (size hand - size hand') 
+      (drawnCards, newDeck) = takeNCards deck (size hand - size hand') 
       newHand = hand' <>| drawnCards
    in (newHand, newDeck)
 
