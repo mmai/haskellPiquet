@@ -25,6 +25,7 @@ dependencies:
 - split
 - random
 - mtl
+- lens
 - rainbow
 - containers
 - ordered-containers

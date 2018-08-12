@@ -57,7 +57,7 @@ data Card = Card { rank :: Rank
                  } deriving (Eq, Ord)
 
 instance Show Card where
-  show (Card rank suit ) = "[" ++ (show rank) ++ " " ++ (show suit) ++ "]"
+  show (Card rank suit ) = "[" ++ show rank ++ " " ++ show suit ++ "]"
 
 type Deck = OSet Card
 type Hand = OSet Card
