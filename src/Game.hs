@@ -7,6 +7,7 @@ module Game
     ) where
 
 import Cards
+import Combinations
 import Shuffle
 
 import Data.List.Split (splitOn)
@@ -64,23 +65,25 @@ makeLenses ''Game
  
 play :: IO Game 
 play = flip execStateT initialState $
-  setElder
+    setElder
  >> replicateM_ 6 playDeal
+ >> endGame
 
 setElder :: GameAction
 setElder = lift (randomRIO (True, False)) >>= assign elderIsPlayer1
 
 playDeal :: GameAction
-playDeal =  shuffle 
-         -- >> get >>= (dealNum >>> show >>> (++ "---------") >>> print >>> lift)
-         >> showDealNum
-         >> deal
-         >> showGame
-         >> showDeck
-         >> exchangeForElder >> step .= succ ExchangeElder
-         >> exchangeForYounger >> step .= succ ExchangeYounger
-         >> setNextDealNum
-         >> showGame
+playDeal =                  start
+         >>                 showDealNum
+         >> step %= succ >> deal
+         >>                 showGame
+         >>                 showDeck
+         >> step %= succ >> exchangeForElder
+         >> step %= succ >> exchangeForYounger
+         >> step %= succ >> declareCombinationElder Point
+         >>                 setNextDealNum
+         >>                 elderIsPlayer1 %= not
+         >>                 showGame
 
 setNextDealNum :: GameAction
 setNextDealNum = do
@@ -105,6 +108,9 @@ initialState = Game
 
 type GameAction = StateT Game IO ()
 
+start :: GameAction
+start = step .= Start >> shuffle
+
 shuffle :: GameAction
 shuffle = do
   state <- get
@@ -112,11 +118,7 @@ shuffle = do
   deck .= shuffledDeck
 -- with arrows :
 -- shuffle =  get 
---        >>= (   liftA2 (fmap . flip (set deck)) id (   view deck 
---                                                   >>> shuffleIO
---                                                   ) 
---            >>> lift
---            ) 
+--        >>= lift (liftA2 (fmap . flip (set deck)) id (view deck >>> shuffleIO)) 
 --        >>= put
 
 deal :: GameAction
@@ -129,10 +131,10 @@ deal = do
   step .= succ Deal 
 
 getElderLens :: Game -> Lens' Game Player
-getElderLens game = if (game ^. elderIsPlayer1) then player1 else player2
+getElderLens game = if game ^. elderIsPlayer1 then player1 else player2
 
 getYoungerLens :: Game -> Lens' Game Player
-getYoungerLens game = if (game ^. elderIsPlayer1) then player2 else player1
+getYoungerLens game = if game ^. elderIsPlayer1 then player2 else player1
 
 exchangeForElder :: GameAction
 -- exchangeForElder = get >>= (getElderLens >>> exchangeForPlayer) -- NOK
@@ -147,6 +149,20 @@ exchangeForYounger = do
   exchangeForPlayer $ getYoungerLens game 
 
 
+-- exchangeForElder :: GameAction
+-- exchangeForElder = exchangeForPlayer True
+--
+-- exchangeForYounger :: GameAction
+-- exchangeForYounger = exchangeForPlayer False
+
+
+-- exchangeForPlayer :: Bool -> GameAction
+-- exchangeForPlayer isElder = do
+--   game <- get
+--   let playerLens 
+--         |     isElder &&      game ^. elderIsPlayer1  = player1
+--         | not isElder && not (game ^. elderIsPlayer1) = player1
+--         | otherwise                                   = player2
 exchangeForPlayer :: Lens' Game Player -> GameAction
 exchangeForPlayer playerLens = do
   game <- get
@@ -159,6 +175,16 @@ exchangeForPlayer playerLens = do
                    >>> uncurry (&)                                            -- Game
                    >>> put
                   )
+
+declareCombinationElder :: CombinationType -> GameAction
+declareCombinationElder combinationType = do
+  game <- get
+  let elderLens = getElderLens game
+  lift $ print $ getCombination Point (game ^. elderLens . hand)
+
+endGame :: GameAction
+endGame =  lift (print "---- RESULTS ------")
+        >> showGame
 
 showGame :: GameAction
 showGame = get >>= ( print >>> lift ) 
