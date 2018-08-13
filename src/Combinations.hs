@@ -34,13 +34,13 @@ instance Ord Combination where
                                then EQ
                                else compare (maximum (toList ha)) (maximum (toList hb))
 
-getCombination :: CombinationType -> Hand -> [Combination]
-getCombination Point =   toList 
+getCombinations :: CombinationType -> Hand -> [Combination]
+getCombinations Point =   toList 
                      >>> sortOn suit 
                      >>> groupBy (\ca cb -> suit ca == suit cb) 
                      >>> fmap fromList 
                      >>> (Combination Point  <$>)
-getCombination Sequence = const []
-getCombination Set = const []
+getCombinations Sequence = const []
+getCombinations Set = const []
 
 

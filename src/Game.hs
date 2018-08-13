@@ -147,12 +147,14 @@ getYoungerLens game = if game ^. elderIsPlayer1 then player2 else player1
 exchangeForElder :: GameAction
 -- exchangeForElder = get >>= (getElderLens >>> exchangeForPlayer) -- NOK
 exchangeForElder = do
+  lift $ putStrLn "Elder change cards:"
   game <- get
   exchangeForPlayer $ getElderLens game 
   -- exchangeForPlayer . getElderLens $ game -- NOK
 
 exchangeForYounger :: GameAction
 exchangeForYounger = do
+  lift $ putStrLn "Younger change cards:"
   game <- get
   exchangeForPlayer $ getYoungerLens game 
 
@@ -187,8 +189,16 @@ exchangeForPlayer playerLens = do
 declareCombinationElder :: CombinationType -> GameAction
 declareCombinationElder combinationType = do
   game <- get
-  let elderLens = getElderLens game
-  lift $ print $ getCombination Point (game ^. elderLens . hand)
+  let elderLens           = getElderLens game
+      youngerLens         = getYoungerLens game
+      elderCombinations   = getCombinations combinationType (game ^. elderLens . hand)
+      youngerCombinations = getCombinations combinationType (game ^. youngerLens . hand)
+  lift $ putStrLn $ "Elder declare " ++ show combinationType ++ " : " ++ show elderCombinations
+  lift getLine >>= (   read
+                   >>> (elderCombinations !!) 
+                   >>> print
+                   >>> lift
+                   )
 
 setNextDealNum :: GameAction
 setNextDealNum = do
