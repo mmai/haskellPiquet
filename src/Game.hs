@@ -17,11 +17,13 @@ import Control.Lens
 import Control.Arrow
 import Control.Applicative
 import Rainbow
+import System.Random
 
 data Role = Elder | Younger deriving (Show)
 
+data Deal = One | Two | Three | Four | Five | Six deriving (Bounded, Eq, Enum, Show)
+
 data Step = Start 
-          | SetRoles 
           | Deal
           | ExchangeElder
           | ExchangeYounger 
@@ -37,7 +39,8 @@ data Step = Start
           | DeclareSequenceYounger
           | DeclareSetYounger
           | DeclareCarteRougeYounger
-          | Play deriving (Enum, Show)
+          | Play 
+          deriving (Enum, Show)
 
 data Player = Player { _hand :: Hand
                      , _roundPoints :: Int
@@ -53,6 +56,7 @@ data Game = Game { _deck :: Deck
                  , _player1 :: Player
                  , _player2 :: Player
                  , _elderIsPlayer1 :: Bool
+                 , _dealNum :: Deal
                  } deriving (Show)
 
 makeLenses ''Game
@@ -60,19 +64,28 @@ makeLenses ''Game
  
 play :: IO Game 
 play = flip execStateT initialState $
-      shuffle 
-   -- >> setRoles
-   >> deal
-   >> showGame
-   >> showDeck
-   >> exchangeForElder >> step .= succ ExchangeElder
-   >> exchangeForYounger >> step .= succ ExchangeYounger
-   >> showGame
-  -- toChange <- fromList . getCardsAtPos hand1 . fmap read . splitOn "," <$> getLine
-  -- -- let toChange = fst $ takeNCards hand1 3
-  -- let (changed, tally') = changeCards tally hand1 toChange 
-  -- print "New hand:"
-  -- print changed
+  setElder
+ >> replicateM_ 6 playDeal
+
+setElder :: GameAction
+setElder = lift (randomRIO (True, False)) >>= assign elderIsPlayer1
+
+playDeal :: GameAction
+playDeal =  shuffle 
+         -- >> get >>= (dealNum >>> show >>> (++ "---------") >>> print >>> lift)
+         >> showDealNum
+         >> deal
+         >> showGame
+         >> showDeck
+         >> exchangeForElder >> step .= succ ExchangeElder
+         >> exchangeForYounger >> step .= succ ExchangeYounger
+         >> setNextDealNum
+         >> showGame
+
+setNextDealNum :: GameAction
+setNextDealNum = do
+  game <- get
+  dealNum %= if maxBound == (game ^. dealNum) then const maxBound else succ
 
 initialState = Game
   { _deck = sortedDeck
@@ -81,6 +94,7 @@ initialState = Game
   , _player1 = initialPlayer & name .~ "Roméo"
   , _player2 = initialPlayer & name .~ "Juliette"
   , _elderIsPlayer1 = True
+  , _dealNum = One
   }
   where initialPlayer = Player { _hand = noCards
                                , _roundPoints = 0
@@ -108,10 +122,10 @@ shuffle = do
 deal :: GameAction
 deal = do
   game <- get
-  let (hands, tally) = drawHands (game ^. deck) 12 2 
+  let (hands, stock) = drawHands (game ^. deck) 12 2 
   player1 . hand .= hands !! 0
   player2 . hand .= hands !! 1
-  deck .= tally
+  deck .= stock
   step .= succ Deal 
 
 getElderLens :: Game -> Lens' Game Player
@@ -151,4 +165,7 @@ showGame = get >>= ( print >>> lift )
 
 showDeck :: GameAction
 showDeck = get >>= (view deck >>> print >>> lift) 
+
+showDealNum :: GameAction
+showDealNum = get >>= (view dealNum >>> show >>> ("--------- " ++ ) >>> print >>> lift) 
 
