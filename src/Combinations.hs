@@ -13,7 +13,10 @@ data CombinationType = Point | Sequence | Set deriving (Show, Eq)
 
 data Combination = Combination { combinationType :: CombinationType
                                , cards :: Hand
-                               } deriving (Show)
+                               } 
+
+instance Show Combination where
+  show c = show (combinationType c) ++ " : " ++ show (cards c)
 
 instance Eq Combination where
   (==) ca@(Combination ta ha ) cb@(Combination tb hb ) = 
@@ -33,7 +36,7 @@ instance Ord Combination where
 
 getCombination :: CombinationType -> Hand -> [Combination]
 getCombination Point =   toList 
-                     >>> sort 
+                     >>> sortOn suit 
                      >>> groupBy (\ca cb -> suit ca == suit cb) 
                      >>> fmap fromList 
                      >>> (Combination Point  <$>)

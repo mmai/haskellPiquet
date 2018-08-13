@@ -48,8 +48,11 @@ data Player = Player { _hand :: Hand
                      , _gamePoints :: Int
                      , _points :: Int
                      , _name :: String
-                     } deriving (Show)
+                     } 
 makeLenses ''Player
+
+instance Show Player where
+  show p = (p ^. name) ++ " : " ++ show (p ^. hand)
 
 data Game = Game { _deck :: Deck
                  , _visible :: Deck
@@ -58,9 +61,17 @@ data Game = Game { _deck :: Deck
                  , _player2 :: Player
                  , _elderIsPlayer1 :: Bool
                  , _dealNum :: Deal
-                 } deriving (Show)
+                 }
 
 makeLenses ''Game
+
+instance Show Game where
+  show game = "\n--------------------------------"
+         ++ "\nStep : " ++ show (game ^. step)
+         ++ "\nDeck : " ++ show (game ^. deck)
+         ++ "\nPlayer1 : " ++ show (game ^. player1)
+         ++ "\nPlayer2 : " ++ show (game ^. player2)
+         ++ "\n-----------------------------\n"
 
  
 play :: IO Game 
@@ -85,11 +96,6 @@ playDeal =                  start
          >>                 elderIsPlayer1 %= not
          >>                 showGame
 
-setNextDealNum :: GameAction
-setNextDealNum = do
-  game <- get
-  dealNum %= if maxBound == (game ^. dealNum) then const maxBound else succ
-
 initialState = Game
   { _deck = sortedDeck
   , _visible = fromList []
@@ -109,7 +115,9 @@ initialState = Game
 type GameAction = StateT Game IO ()
 
 start :: GameAction
-start = step .= Start >> shuffle
+start =  step .= Start 
+      >> deck .= sortedDeck
+      >> shuffle
 
 shuffle :: GameAction
 shuffle = do
@@ -182,6 +190,11 @@ declareCombinationElder combinationType = do
   let elderLens = getElderLens game
   lift $ print $ getCombination Point (game ^. elderLens . hand)
 
+setNextDealNum :: GameAction
+setNextDealNum = do
+  game <- get
+  dealNum %= if maxBound == (game ^. dealNum) then const maxBound else succ
+
 endGame :: GameAction
 endGame =  lift (print "---- RESULTS ------")
         >> showGame
@@ -190,8 +203,8 @@ showGame :: GameAction
 showGame = get >>= ( print >>> lift ) 
 
 showDeck :: GameAction
-showDeck = get >>= (view deck >>> print >>> lift) 
+showDeck = get >>= (view deck >>> show >>> putStrLn >>> lift) 
 
 showDealNum :: GameAction
-showDealNum = get >>= (view dealNum >>> show >>> ("--------- " ++ ) >>> print >>> lift) 
+showDealNum = get >>= (view dealNum >>> show >>> ("--------- " ++ ) >>> putStrLn >>> lift) 
 
