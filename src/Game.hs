@@ -88,7 +88,6 @@ playDeal =                  start
          >>                 showDealNum
          >> step %= succ >> deal
          >>                 showGame
-         >>                 showDeck
          >> step %= succ >> exchangeForElder
          >> step %= succ >> exchangeForYounger
          >> step %= succ >> declareCombinationElder Point

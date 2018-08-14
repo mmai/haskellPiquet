@@ -29,10 +29,19 @@ instance Ord Combination where
     | ta == Set      = EQ
     | ta == Point    = if length ha /= length hb 
                           then compare (length ha) (length hb) -- nombre de cartes
-                          else                                 -- plus haute carte
+                          else                                 -- somme des valeurs des cartes
                             if (length ha == 0) 
                                then EQ
-                               else compare (maximum (toList ha)) (maximum (toList hb))
+                               -- else compare (maximum (toList ha)) (maximum (toList hb))
+                               else compare (sum $ pointValue <$> toList ha) (sum $ pointValue <$> toList hb)
+
+pointValue :: Card -> Int 
+pointValue (Card rank _) = case rank of 
+                             Ace   -> 11
+                             King  -> 10
+                             Queen -> 10
+                             Jack  -> 10
+                             _     -> read $ show rank
 
 getCombinations :: CombinationType -> Hand -> [Combination]
 getCombinations Point =   toList 
