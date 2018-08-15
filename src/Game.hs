@@ -11,16 +11,15 @@ import Combinations
 import Shuffle
 
 import Data.List.Split (splitOn)
-import Data.Set.Ordered
+import Data.Set.Ordered hiding (filter)
 import Data.Function
+import Text.Read (readMaybe)
 import Control.Monad.State
 import Control.Lens
 import Control.Arrow
 import Control.Applicative
 import Rainbow
 import System.Random
-
-data Role = Elder | Younger deriving (Show)
 
 data Deal = One | Two | Three | Four | Five | Six deriving (Bounded, Eq, Enum, Show)
 
@@ -54,12 +53,17 @@ makeLenses ''Player
 instance Show Player where
   show p = (p ^. name) ++ " : " ++ show (p ^. hand)
 
+data DeclarationWinner = Elder | Younger | Tie | Nobody
+
 data Game = Game { _deck :: Deck
                  , _visible :: Deck
                  , _step :: Step
                  , _player1 :: Player
                  , _player2 :: Player
                  , _elderIsPlayer1 :: Bool
+                 , _pointWinner :: DeclarationWinner
+                 , _sequenceWinner :: DeclarationWinner
+                 , _setWinner :: DeclarationWinner
                  , _dealNum :: Deal
                  }
 
@@ -102,6 +106,9 @@ initialState = Game
   , _player1 = initialPlayer & name .~ "Roméo"
   , _player2 = initialPlayer & name .~ "Juliette"
   , _elderIsPlayer1 = True
+  , _pointWinner = Nobody
+  , _sequenceWinner = Nobody
+  , _setWinner = Nobody
   , _dealNum = One
   }
   where initialPlayer = Player { _hand = noCards
@@ -115,6 +122,9 @@ type GameAction = StateT Game IO ()
 
 start :: GameAction
 start =  step .= Start 
+      >> pointWinner .= Nobody
+      >> sequenceWinner .= Nobody
+      >> setWinner .= Nobody
       >> deck .= sortedDeck
       >> shuffle
 
@@ -193,11 +203,28 @@ declareCombinationElder combinationType = do
       elderCombinations   = getCombinations combinationType (game ^. elderLens . hand)
       youngerCombinations = getCombinations combinationType (game ^. youngerLens . hand)
   lift $ putStrLn $ "Elder declare " ++ show combinationType ++ " : " ++ show elderCombinations
-  lift getLine >>= (   read
-                   >>> (elderCombinations !!) 
-                   >>> print
-                   >>> lift
-                   )
+  choice <- lift getLine
+  let maybeElderCombination = (elderCombinations !!) <$> readMaybe choice
+      youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( elderCombi <= ) elderCombinations) maybeElderCombination
+  lift $ putStrLn $ "Younger response " ++ show combinationType ++ " : " ++ show youngerUpperCombinations
+  choiceYounger <- lift getLine
+  let maybeYoungerCombination = (youngerUpperCombinations !!) <$> readMaybe choice
+  getCombinationWinner combinationType maybeElderCombination maybeYoungerCombination
+
+getCombinationWinner :: CombinationType -> Maybe Combination -> Maybe Combination -> GameAction
+getCombinationWinner combinationType Nothing Nothing = getCombinationLens combinationType .= Tie
+getCombinationWinner combinationType Nothing _ = getCombinationLens combinationType .= Younger
+getCombinationWinner combinationType _ Nothing = getCombinationLens combinationType .= Elder
+getCombinationWinner combinationType (Just combElder) (Just combYounger) = 
+      getCombinationLens combinationType .= case compare combElder combYounger of
+                                               EQ -> Tie
+                                               LT -> Younger
+                                               GT -> Elder
+
+getCombinationLens :: CombinationType ->  Lens' Game DeclarationWinner
+getCombinationLens Point    = pointWinner
+getCombinationLens Sequence = sequenceWinner
+getCombinationLens Set      = setWinner
 
 setNextDealNum :: GameAction
 setNextDealNum = do
