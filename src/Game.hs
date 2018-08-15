@@ -212,14 +212,13 @@ declareCombinationElder combinationType = do
   getCombinationWinner combinationType maybeElderCombination maybeYoungerCombination
 
 getCombinationWinner :: CombinationType -> Maybe Combination -> Maybe Combination -> GameAction
-getCombinationWinner combinationType Nothing Nothing = getCombinationLens combinationType .= Tie
-getCombinationWinner combinationType Nothing _ = getCombinationLens combinationType .= Younger
-getCombinationWinner combinationType _ Nothing = getCombinationLens combinationType .= Elder
-getCombinationWinner combinationType (Just combElder) (Just combYounger) = 
-      getCombinationLens combinationType .= case compare combElder combYounger of
-                                               EQ -> Tie
-                                               LT -> Younger
-                                               GT -> Elder
+getCombinationWinner cType Nothing     Nothing        = getCombinationLens cType .= Tie
+getCombinationWinner cType Nothing     _              = getCombinationLens cType .= Younger
+getCombinationWinner cType _           Nothing        = getCombinationLens cType .= Elder
+getCombinationWinner cType (Just cEld) (Just cYoung)  = getCombinationLens cType .= case compare cEld cYoung of
+                                                                                      EQ -> Tie
+                                                                                      LT -> Younger
+                                                                                      GT -> Elder
 
 getCombinationLens :: CombinationType ->  Lens' Game DeclarationWinner
 getCombinationLens Point    = pointWinner
