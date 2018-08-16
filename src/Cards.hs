@@ -4,6 +4,8 @@ module Cards ( Suit(..)
             , Deck
             , Hand
             , sortedDeck
+            , sortByColor
+            , sortByRank
             , noCards
             , changeCards
             , drawHands
@@ -13,6 +15,7 @@ module Cards ( Suit(..)
             ) where
 
 import Control.Monad.State
+import Data.List
 import Data.Set.Ordered
 import Data.Foldable (toList)
 
@@ -56,6 +59,20 @@ data Card = Card { rank :: Rank
                  , suit  :: Suit
                  } deriving (Eq, Ord)
 
+sortByColor :: Hand -> Hand
+sortByColor = fromList . (sortBy compareByColorThenRank) . toList where
+  compareByColorThenRank a b
+    | a == b            =  EQ
+    | suit a == suit b  =  compare (rank a) (rank b)
+    | otherwise         =  compare (suit a) (suit b)
+
+sortByRank :: Hand -> Hand
+sortByRank = fromList . (sortBy compareByRankThenColor) . toList where
+  compareByRankThenColor a b
+    | a == b            =  EQ
+    | rank a == rank b  =  compare (suit a) (suit b)
+    | otherwise         =  compare (rank a) (rank b)
+
 instance Show Card where
   show (Card rank suit ) = "[" ++ show rank ++ " " ++ show suit ++ "]"
 
@@ -94,7 +111,7 @@ drawHands deck ncards nhands = runState (drawHandsST ncards nhands) deck
 -- only remove cards really existing in the hand
 changeCards :: Deck -> Hand -> OSet Card -> (Hand, Deck)
 changeCards deck hand cardsToRemove = 
-  let hand' = hand \\ cardsToRemove
+  let hand' = hand Data.Set.Ordered.\\ cardsToRemove
       (drawnCards, newDeck) = takeNCards deck (size hand - size hand') 
       newHand = hand' <>| drawnCards
    in (newHand, newDeck)

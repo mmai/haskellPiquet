@@ -4,7 +4,7 @@ module Combinations where
 
 import Control.Arrow
 import Data.List
-import Data.Set.Ordered
+import Data.Set.Ordered hiding (filter)
 import Data.Foldable (toList)
 
 import Cards
@@ -44,12 +44,22 @@ pointValue (Card rank _) = case rank of
                              _     -> read $ show rank
 
 getCombinations :: CombinationType -> Hand -> [Combination]
-getCombinations Point =   toList 
-                     >>> sortOn suit 
-                     >>> groupBy (\ca cb -> suit ca == suit cb) 
+getCombinations Point =  sortByColor
+                         >>> toList 
+                         >>> groupBy (\ca cb -> suit ca == suit cb) 
+                         >>> fmap fromList 
+                         >>> (Combination Point  <$>)
+getCombinations Sequence = sortByColor
+                       >>> toList
+                       >>> groupBy (\ca cb -> succ (rank ca ) == rank cb) 
+                       >>> filter (\cards -> length cards > 2)
+                       >>> fmap fromList 
+                       >>> (Combination Sequence  <$>)
+getCombinations Set =   sortByRank
+                     >>> toList
+                     >>> groupBy (\ca cb -> rank ca  == rank cb) 
+                     >>> filter (\cards -> length cards > 2)
                      >>> fmap fromList 
-                     >>> (Combination Point  <$>)
-getCombinations Sequence = const []
-getCombinations Set = const []
+                     >>> (Combination Set  <$>)
 
 
