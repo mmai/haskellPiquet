@@ -11,7 +11,6 @@ module Cards ( Suit(..)
             , drawHands
             , takeNCards
             , getCardsAtPos
-            , follows
             ) where
 
 import Control.Monad.State
@@ -115,16 +114,4 @@ changeCards deck hand cardsToRemove =
       (drawnCards, newDeck) = takeNCards deck (size hand - size hand') 
       newHand = hand' <>| drawnCards
    in (newHand, newDeck)
-
----- Combinations
-
-combinationPoints :: Hand -> (Int, Int)
-combinationPoints h = (5, 30)
-
-----
-
--- |Does the second card follow the first?
-follows :: Card -> Card -> Bool
-follows (Card Ace _) _ = False
-follows c1 c2          = succ (rank c1) == rank c2 && suit c1 == suit c2
 
