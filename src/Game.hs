@@ -14,6 +14,7 @@ import Data.List.Split (splitOn)
 import Data.Set.Ordered hiding (filter)
 import Data.Function
 import Data.Bool
+import Data.Maybe
 import Text.Read (readMaybe)
 import Control.Monad.State
 import Control.Lens
@@ -54,7 +55,7 @@ makeLenses ''Player
 instance Show Player where
   show p = (p ^. name) ++ " : "  ++ show (p ^. dealPoints) ++ " : "++ show (p ^. hand)
 
-data DeclarationWinner = Elder | Younger | Tie | Nobody
+data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 
 data Game = Game { _deck :: Deck
                  , _visible :: Deck
@@ -74,6 +75,7 @@ instance Show Game where
   show game = "\n--------------------------------"
          ++ "\nStep : " ++ show (game ^. step)
          ++ "\nDeck : " ++ show (game ^. deck)
+         ++ "\nPoint winner : " ++ show (game ^. pointWinner)
          ++ "\nPlayer1 : " ++ show (game ^. player1)
          ++ "\nPlayer2 : " ++ show (game ^. player2)
          ++ "\n-----------------------------\n"
@@ -206,44 +208,34 @@ declareCombinationElder combinationType = do
   lift $ putStrLn $ "Elder declare " ++ show combinationType ++ " : " ++ show elderCombinations
   choice <- lift getLine
   let maybeElderCombination = (elderCombinations !!) <$> readMaybe choice
-      youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( elderCombi <= ) elderCombinations) maybeElderCombination
+      youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( elderCombi <= ) youngerCombinations) maybeElderCombination
   lift $ putStrLn $ "Younger response " ++ show combinationType ++ " : " ++ show youngerUpperCombinations
   choiceYounger <- lift getLine
   let maybeYoungerCombination = (youngerUpperCombinations !!) <$> readMaybe choice
-  getCombinationWinner combinationType maybeElderCombination maybeYoungerCombination
-  -- player1 . dealPoints %= id
-  -- elderLens . dealPoints %= id
-  -- elderLens . dealPoints %=  if game  ^. (getCombinationLens combinationType) == Elder 
-  --    then ( + (fromMaybe 0 getCombinationPoints maybeElderCombination ))
-  --    else id
+  getDeclarationWinnerLens combinationType .= getDeclarationWinner maybeElderCombination maybeYoungerCombination
+  (getElderLens game . dealPoints) %= if game  ^. getDeclarationWinnerLens combinationType == Elder 
+                                         then ( + 5 )
+                                         else ( + 7 )
+                                         -- then ( + maybe 0 getCombinationPoints maybeElderCombination )
+                                         -- else id
 
-updatePoints :: GameAction
-updatePoints = player1 . dealPoints %= id
-  -- (elderLens . dealPoints) %= id
+getDeclarationWinnerLens :: CombinationType ->  Lens' Game DeclarationWinner
+getDeclarationWinnerLens Point    = pointWinner
+getDeclarationWinnerLens Sequence = sequenceWinner
+getDeclarationWinnerLens Set      = setWinner
 
-getCombinationWinner :: CombinationType -> Maybe Combination -> Maybe Combination -> GameAction
-getCombinationWinner cType Nothing     Nothing        = getCombinationLens cType .= Tie
-getCombinationWinner cType Nothing     _              = getCombinationLens cType .= Younger
-getCombinationWinner cType _           Nothing        = getCombinationLens cType .= Elder
-getCombinationWinner cType (Just cEld) (Just cYoung)  = getCombinationLens cType .= case compare cEld cYoung of
-                                                                                      EQ -> Tie
-                                                                                      LT -> Younger
-                                                                                      GT -> Elder
-
-getCombinationLens :: CombinationType ->  Lens' Game DeclarationWinner
-getCombinationLens Point    = pointWinner
-getCombinationLens Sequence = sequenceWinner
-getCombinationLens Set      = setWinner
-
--- setNextDealNum :: GameAction
--- setNextDealNum = do
---   game <- get
---   dealNum %= if maxBound == (game ^. dealNum) then const maxBound else succ
+getDeclarationWinner :: Maybe Combination -> Maybe Combination -> DeclarationWinner
+getDeclarationWinner Nothing     Nothing        = Tie
+getDeclarationWinner Nothing     _              = Younger
+getDeclarationWinner _           Nothing        = Elder
+getDeclarationWinner (Just cEld) (Just cYoung)  = case compare cEld cYoung of
+                                                    EQ -> Tie
+                                                    LT -> Younger
+                                                    GT -> Elder
 
 nextDealNum :: Deal -> Deal
--- nextDealNum dealN = if (maxBound == dealN) then maxBound else (succ dealN)  
--- nextDealNum dealN = bool (succ dealN) maxBound (maxBound == dealN)
-nextDealNum = liftA2 (`bool` maxBound) succ (maxBound == )
+nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN
+-- nextDealNum = liftA2 (`bool` maxBound) succ (maxBound == )
 
 endGame :: GameAction
 endGame =  lift (print "---- RESULTS ------")

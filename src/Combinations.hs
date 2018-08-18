@@ -43,10 +43,10 @@ pointValue (Card rank _) = case rank of
                              Jack  -> 10
                              _     -> read $ show rank
 
-getCombinationPoints :: CombinationType -> Hand -> Int
-getCombinationPoints Point h     =  length h
-getCombinationPoints Set h       =  if length h == 4 then 14 else 3
-getCombinationPoints Sequence h  =  if l > 4 then l + 10 else l where l = length h
+getCombinationPoints :: Combination -> Int
+getCombinationPoints (Combination Point    h) = length h
+getCombinationPoints (Combination Set      h) = if length h == 4 then 14 else 3
+getCombinationPoints (Combination Sequence h) = if l > 4 then l + 10 else l where l = length h
 
 getCombinations :: CombinationType -> Hand -> [Combination]
 getCombinations Point =  sortByColor
