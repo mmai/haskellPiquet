@@ -55,6 +55,8 @@ makeLenses ''Player
 instance Show Player where
   show p = (p ^. name) ++ " : "  ++ show (p ^. dealPoints) ++ " : "++ show (p ^. hand)
 
+data DeclarationResponse = Good | NotGood | Equals deriving (Show)
+
 data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 
 data Game = Game { _deck :: Deck
@@ -210,7 +212,9 @@ declareCombinationElder combinationType = do
   choice <- lift getLine
   let maybeElderCombination = (elderCombinations !!) <$> readMaybe choice
       youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( elderCombi <= ) youngerCombinations) maybeElderCombination
+      -- TODO montrer aussi les combinaisons de même nombre de cartes
   lift $ putStrLn $ "Younger response " ++ show combinationType ++ " : " ++ show youngerUpperCombinations
+  lift $ putStrLn $ "( " ++ show (getResponseChoices maybeElderCombination youngerUpperCombinations) ++ " ) " 
   choiceYounger <- lift getLine
   let maybeYoungerCombination = (youngerUpperCombinations !!) <$> readMaybe choiceYounger
       declarationWinner = getDeclarationWinner maybeElderCombination maybeYoungerCombination
@@ -218,6 +222,17 @@ declareCombinationElder combinationType = do
   (getElderLens game . dealPoints) %= if declarationWinner == Elder 
                                          then ( + maybe 0 getCombinationPoints maybeElderCombination )
                                          else id
+
+getResponseChoices :: Maybe Combination -> [Combination] -> [DeclarationResponse]
+getResponseChoices Nothing _ = [Good, NotGood, Equals]
+getResponseChoices (Just elderCombination) youngerCombinations = 
+      [ Good ] 
+   ++ bool [] [Equals] existsSameSize 
+   ++ bool [] [NotGood] existsLonger 
+     where elderSize     = length .cards $ elderCombination
+           youngerSizes  = length . cards <$> youngerCombinations
+           existsSameSize = elem elderSize youngerSizes
+           existsLonger  = any (elderSize < ) youngerSizes
 
 getWinnerCombinationLens :: CombinationType ->  Lens' Game DeclarationWinner
 getWinnerCombinationLens Point    = pointWinner
