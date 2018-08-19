@@ -75,6 +75,7 @@ instance Show Game where
   show game = "\n--------------------------------"
          ++ "\nStep : " ++ show (game ^. step)
          ++ "\nDeck : " ++ show (game ^. deck)
+         ++ "\nElder : " ++ (if game ^. elderIsPlayer1 then "Player1" else "Player2")
          ++ "\nPoint winner : " ++ show (game ^. pointWinner)
          ++ "\nPlayer1 : " ++ show (game ^. player1)
          ++ "\nPlayer2 : " ++ show (game ^. player2)
@@ -98,9 +99,9 @@ playDeal =                  start
          >> step %= succ >> exchangeForElder
          >> step %= succ >> exchangeForYounger
          >> step %= succ >> declareCombinationElder Point
+         >>                 showGame
          >>                 dealNum %= nextDealNum
          >>                 elderIsPlayer1 %= not
-         >>                 showGame
 
 initialState = Game
   { _deck = sortedDeck
@@ -211,18 +212,17 @@ declareCombinationElder combinationType = do
       youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( elderCombi <= ) youngerCombinations) maybeElderCombination
   lift $ putStrLn $ "Younger response " ++ show combinationType ++ " : " ++ show youngerUpperCombinations
   choiceYounger <- lift getLine
-  let maybeYoungerCombination = (youngerUpperCombinations !!) <$> readMaybe choice
-  getDeclarationWinnerLens combinationType .= getDeclarationWinner maybeElderCombination maybeYoungerCombination
-  (getElderLens game . dealPoints) %= if game  ^. getDeclarationWinnerLens combinationType == Elder 
-                                         then ( + 5 )
-                                         else ( + 7 )
-                                         -- then ( + maybe 0 getCombinationPoints maybeElderCombination )
-                                         -- else id
+  let maybeYoungerCombination = (youngerUpperCombinations !!) <$> readMaybe choiceYounger
+      declarationWinner = getDeclarationWinner maybeElderCombination maybeYoungerCombination
+  getWinnerCombinationLens combinationType .= declarationWinner
+  (getElderLens game . dealPoints) %= if declarationWinner == Elder 
+                                         then ( + maybe 0 getCombinationPoints maybeElderCombination )
+                                         else id
 
-getDeclarationWinnerLens :: CombinationType ->  Lens' Game DeclarationWinner
-getDeclarationWinnerLens Point    = pointWinner
-getDeclarationWinnerLens Sequence = sequenceWinner
-getDeclarationWinnerLens Set      = setWinner
+getWinnerCombinationLens :: CombinationType ->  Lens' Game DeclarationWinner
+getWinnerCombinationLens Point    = pointWinner
+getWinnerCombinationLens Sequence = sequenceWinner
+getWinnerCombinationLens Set      = setWinner
 
 getDeclarationWinner :: Maybe Combination -> Maybe Combination -> DeclarationWinner
 getDeclarationWinner Nothing     Nothing        = Tie
