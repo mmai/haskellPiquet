@@ -3,7 +3,9 @@
 module Combinations where
 
 import Control.Arrow
+import Control.Applicative
 import Data.List
+import Data.Maybe
 import Data.Set.Ordered hiding (filter)
 import Data.Foldable (toList)
 
@@ -24,16 +26,44 @@ instance Eq Combination where
 
 instance Ord Combination where
   compare (Combination ta ha ) (Combination tb hb )
-    | ta /= tb       = EQ
-    | ta == Sequence = EQ
-    | ta == Set      = EQ
-    | ta == Point    = if length ha /= length hb 
-                          then compare (length ha) (length hb) -- nombre de cartes
-                          else                                 -- somme des valeurs des cartes
-                            if (length ha == 0) 
-                               then EQ
-                               -- else compare (maximum (toList ha)) (maximum (toList hb))
-                               else compare (sum $ pointValue <$> toList ha) (sum $ pointValue <$> toList hb)
+    | ta /= tb               = EQ
+    | length ha /= length hb = compare (length ha) (length hb) -- by card count, valid for all combination types
+    | ta == Sequence = compare (maximum (toList ha)) (maximum (toList hb))
+    | ta == Set      = compare (maximum (toList ha)) (maximum (toList hb))
+    | ta == Point    = if length ha == 0
+                          then EQ
+                          else compare (sum $ pointValue <$> toList ha) (sum $ pointValue <$> toList hb)
+
+-- This is used in the first part of the declaration
+compareLength :: Combination -> Combination -> Ordering
+compareLength ca cb = compare (length $ cards ca) (length $ cards cb)
+
+showDeclaration :: Combination -> String
+showDeclaration (Combination Point cHand) = "Point of " ++ show (length cHand)
+showDeclaration (Combination Set cHand) = case length cHand of
+                                            3 -> "Trio"
+                                            4 -> "Quatorze"
+showDeclaration (Combination Sequence cHand) = case length cHand of
+                                                 3 -> "Tierce"
+                                                 4 -> "Quart"
+                                                 5 -> "Cinquième"
+                                                 6 -> "Sixième"
+                                                 7 -> "Septième"
+                                                 8 -> "Huitième"
+
+showDeclarationComplete :: Combination -> String
+showDeclarationComplete c@(Combination Point cHand) = showDeclaration c ++ " totaling " ++ show (sum $ pointValue <$> toList cHand)
+showDeclarationComplete c@(Combination Sequence cHand) = showDeclaration c ++ " to " ++ show (maximum (toList cHand))
+showDeclarationComplete c@(Combination Set cHand) = showDeclaration c ++ " of " ++ show (maximum (toList cHand))
+  
+showMaybeDeclaration :: Maybe Combination -> String
+showMaybeDeclaration mComb = fromMaybe "Nothing" (showDeclaration <$> mComb)
+
+showDeclarations :: [Combination] -> String
+showDeclarations = fmap (liftA2 (\a b -> a ++ "(" ++ b ++ ")") show showDeclaration )
+  >>> ("Nothing" : )
+  >>> intersperse ", "
+  >>> concat
 
 pointValue :: Card -> Int 
 pointValue (Card rank _) = case rank of 

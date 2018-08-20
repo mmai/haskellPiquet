@@ -88,7 +88,7 @@ noCards = fromList []
 
 takeNCards :: Deck -> Int -> (Hand, Deck)
 takeNCards d n = let (lhand, ldeck) = splitAt n (toList d)
-                 in (fromList lhand, fromList ldeck)
+                  in (sortByColor (fromList lhand), fromList ldeck)
 
 getCardsAtPos :: Hand -> [Int] -> [Card]
 getCardsAtPos hand indices = (toList hand !!) <$> indices
@@ -100,11 +100,11 @@ drawCards n = do
   put newDeck
   return hand
 
-drawHandsST :: Int -> Int -> State Deck [Hand]
-drawHandsST ncards nhands = replicateM nhands $ drawCards ncards
+drawHandsSt :: Int -> Int -> State Deck [Hand]
+drawHandsSt ncards nhands = replicateM nhands $ drawCards ncards
 
 drawHands :: Deck -> Int -> Int -> ([Hand], Deck) 
-drawHands deck ncards nhands = runState (drawHandsST ncards nhands) deck
+drawHands deck ncards nhands = runState (drawHandsSt ncards nhands) deck
 
 -- Remove cards from a hand and replace them by cards from the deck
 -- only remove cards really existing in the hand

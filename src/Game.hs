@@ -1,3 +1,4 @@
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
 
@@ -208,45 +209,54 @@ declareCombinationElder combinationType = do
       youngerLens         = getYoungerLens game
       elderCombinations   = getCombinations combinationType (game ^. elderLens . hand)
       youngerCombinations = getCombinations combinationType (game ^. youngerLens . hand)
-  lift $ putStrLn $ "Elder declare " ++ show combinationType ++ " : " ++ show elderCombinations
+  lift $ putStrLn $ "-> Elder declare " ++ show combinationType ++ " : " ++ showDeclarations elderCombinations
   choice <- lift getLine
   let maybeElderCombination = (elderCombinations !!) <$> readMaybe choice
-      youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( elderCombi <= ) youngerCombinations) maybeElderCombination
-      -- TODO montrer aussi les combinaisons de même nombre de cartes
-  lift $ putStrLn $ "Younger response " ++ show combinationType ++ " : " ++ show youngerUpperCombinations
-  lift $ putStrLn $ "( " ++ show (getResponseChoices maybeElderCombination youngerUpperCombinations) ++ " ) " 
+      -- youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( elderCombi <= ) youngerCombinations) maybeElderCombination
+      -- youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( ( GT /= ) . compareLength elderCombi) youngerCombinations) maybeElderCombination
+      responseChoices = getResponseChoices maybeElderCombination youngerCombinations
+  lift $ putStrLn $ "[Elder] " ++ show combinationType ++ " : " ++ fromMaybe "Nothing" (showDeclaration <$> maybeElderCombination) 
+  lift $ putStrLn $ "-> Younger response " ++ show combinationType ++ " : " ++ show responseChoices
   choiceYounger <- lift getLine
-  let maybeYoungerCombination = (youngerUpperCombinations !!) <$> readMaybe choiceYounger
-      declarationWinner = getDeclarationWinner maybeElderCombination maybeYoungerCombination
+  let maybeChoiceYounger = (responseChoices !!) <$> readMaybe choiceYounger
+  declarationWinner <- lift $ getDeclarationWinner responseChoices maybeElderCombination maybeChoiceYounger
   getWinnerCombinationLens combinationType .= declarationWinner
   (getElderLens game . dealPoints) %= if declarationWinner == Elder 
                                          then ( + maybe 0 getCombinationPoints maybeElderCombination )
                                          else id
 
-getResponseChoices :: Maybe Combination -> [Combination] -> [DeclarationResponse]
-getResponseChoices Nothing _ = [Good, NotGood, Equals]
-getResponseChoices (Just elderCombination) youngerCombinations = 
-      [ Good ] 
-   ++ bool [] [Equals] existsSameSize 
-   ++ bool [] [NotGood] existsLonger 
-     where elderSize     = length .cards $ elderCombination
-           youngerSizes  = length . cards <$> youngerCombinations
-           existsSameSize = elem elderSize youngerSizes
-           existsLonger  = any (elderSize < ) youngerSizes
+getResponseChoices :: Maybe Combination -> [Combination] -> [(DeclarationResponse, Combination)]
+getResponseChoices Nothing [] = []
+-- getResponseChoices Nothing combs = (Equals, Nothing) : ((NotGood, ) <$> combs)
+getResponseChoices Nothing combs = ((NotGood, ) <$> combs)
+getResponseChoices (Just elderCombination) combs = 
+  let ecSize = length elderCombination in
+    [ (Good, Nothing) ] 
+    ++ bool [] ((Equals, ) <$> (filter (\c -> length c == ecSize ) combs))  
+    ++ bool [] ((NotGood, ) <$> (filter (\c -> length c > ecSize ) combs))  
+
+getDeclarationWinner :: [(DeclarationResponse, Combination)] -> Maybe Combination -> Maybe (DeclarationResponse, Combination) -> IO DeclarationWinner
+getDeclarationWinner _  Nothing     Nothing                    = return Tie
+getDeclarationWinner _  Nothing     (Just (Good, _))           = return Tie
+getDeclarationWinner _  (Just cEld) Nothing                    = return Elder
+getDeclarationWinner _  (Just cEld) (Just (Good, _))           = return Elder
+getDeclarationWinner cs (Just cEld) (Just c@(NotGood, cYoung)) = return $ if c `elem` cs then Younger else Elder
+getDeclarationWinner cs (Just cEld) (Just (Tie, cYoung))       =
+  if c `notElem` cs
+     then return Elder
+     else do
+       let (winner, response) = case compare cEld cYoung of
+                                  EQ -> (Tie, Tie)
+                                  LT -> (Younger, NotGood)
+                                  GT -> (Elder, Good)
+       putStrLn $ "[Elder] " ++ showDeclarationComplete cEld
+       putStrLn $ "[Younger] " ++ show response
+       return winner
 
 getWinnerCombinationLens :: CombinationType ->  Lens' Game DeclarationWinner
 getWinnerCombinationLens Point    = pointWinner
 getWinnerCombinationLens Sequence = sequenceWinner
 getWinnerCombinationLens Set      = setWinner
-
-getDeclarationWinner :: Maybe Combination -> Maybe Combination -> DeclarationWinner
-getDeclarationWinner Nothing     Nothing        = Tie
-getDeclarationWinner Nothing     _              = Younger
-getDeclarationWinner _           Nothing        = Elder
-getDeclarationWinner (Just cEld) (Just cYoung)  = case compare cEld cYoung of
-                                                    EQ -> Tie
-                                                    LT -> Younger
-                                                    GT -> Elder
 
 nextDealNum :: Deal -> Deal
 nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN
