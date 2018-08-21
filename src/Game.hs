@@ -33,15 +33,21 @@ data Step = Start
           | ExchangeYounger 
           | DeclarePointElder
           | DeclarePointResponse 
+          | SetPointsPointElder 
           | DeclareSequenceElder
           | DeclareSequenceResponse
+          | SetPointsSequenceElder 
           | DeclareSetElder
           | DeclareSetResponse
+          | SetPointsSetElder 
           | DeclareCarteRougeElder
           | Play1
           | DeclarePointYounger
+          | SetPointsPointYounger 
           | DeclareSequenceYounger
+          | SetPointsSequenceYounger 
           | DeclareSetYounger
+          | SetPointsSetYounger 
           | DeclareCarteRougeYounger
           | Play 
           deriving (Enum, Show)
@@ -61,16 +67,19 @@ data DeclarationResponse = Good | NotGood | Equals deriving (Eq, Show)
 
 data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 
-data Game = Game { _deck :: Deck
-                 , _visible :: Deck
-                 , _step :: Step
-                 , _player1 :: Player
-                 , _player2 :: Player
-                 , _elderIsPlayer1 :: Bool
-                 , _pointWinner :: DeclarationWinner
-                 , _sequenceWinner :: DeclarationWinner
-                 , _setWinner :: DeclarationWinner
-                 , _dealNum :: Deal
+data Game = Game { _dealNum             :: Deal
+                 , _deck                :: Deck
+                 , _visible             :: Deck
+                 , _step                :: Step
+                 , _player1             :: Player
+                 , _player2             :: Player
+                 , _elderIsPlayer1      :: Bool
+                 , _pointWinner         :: DeclarationWinner
+                 , _pointCombination    :: Maybe Combination
+                 , _sequenceWinner      :: DeclarationWinner
+                 , _sequenceCombination :: Maybe Combination
+                 , _setWinner           :: DeclarationWinner
+                 , _setCombination      :: Maybe Combination
                  }
 
 makeLenses ''Game
@@ -85,39 +94,64 @@ instance Show Game where
          ++ "\nPlayer2 : " ++ show (game ^. player2)
          ++ "\n-----------------------------\n"
 
- 
+-- Lenses accessors
+getElderLens :: Game -> Lens' Game Player
+getElderLens game = if game ^. elderIsPlayer1 then player1 else player2
+
+getYoungerLens :: Game -> Lens' Game Player
+getYoungerLens game = if game ^. elderIsPlayer1 then player2 else player1
+
+getCombinationLens :: CombinationType ->  Lens' Game (Maybe Combination)
+getCombinationLens Point    = pointCombination
+getCombinationLens Sequence = sequenceCombination
+getCombinationLens Set      = setCombination
+
+getWinnerLens :: CombinationType ->  Lens' Game DeclarationWinner
+getWinnerLens Point    = pointWinner
+getWinnerLens Sequence = sequenceWinner
+getWinnerLens Set      = setWinner
+
+------- 
+
 play :: IO Game 
 play = flip execStateT initialState $
-    setElder
+  lift (randomRIO (True, False)) >>= assign elderIsPlayer1 -- set random elder
  >> replicateM_ 6 playDeal
  >> endGame
-
-setElder :: GameAction
-setElder = lift (randomRIO (True, False)) >>= assign elderIsPlayer1
 
 playDeal :: GameAction
 playDeal =                  start
          >>                 showDealNum
          >> step %= succ >> deal
          >>                 showGame
-         >> step %= succ >> exchangeForElder
-         >> step %= succ >> exchangeForYounger
-         >> step %= succ >> declareCombinationElder Point
+         >> step %= succ >> changeElderCards
+         >> step %= succ >> changeYoungerCards
+         >> step %= succ >> declarationElder Point
+         >> step %= succ >> declarationElder Sequence
+         >> step %= succ >> declarationElder Set
          >>                 showGame
          >>                 dealNum %= nextDealNum
          >>                 elderIsPlayer1 %= not
 
+declarationElder :: CombinationType -> GameAction
+declarationElder ct = declareCombinationElder ct 
+   >> step %= succ >> declareCombinationResponse ct
+   >> step %= succ >> setCombinationElderPoints ct
+
 initialState = Game
-  { _deck = sortedDeck
+  { _dealNum = One
+  , _deck = sortedDeck
   , _visible = fromList []
   , _step = Start
   , _player1 = initialPlayer & name .~ "Roméo"
   , _player2 = initialPlayer & name .~ "Juliette"
   , _elderIsPlayer1 = True
   , _pointWinner = Nobody
+  , _pointCombination = Nothing
   , _sequenceWinner = Nobody
+  , _sequenceCombination = Nothing
   , _setWinner = Nobody
-  , _dealNum = One
+  , _setCombination = Nothing
   }
   where initialPlayer = Player { _hand = noCards
                                , _dealPoints = 0
@@ -155,43 +189,22 @@ deal = do
   deck .= stock
   step .= succ Deal 
 
-getElderLens :: Game -> Lens' Game Player
-getElderLens game = if game ^. elderIsPlayer1 then player1 else player2
-
-getYoungerLens :: Game -> Lens' Game Player
-getYoungerLens game = if game ^. elderIsPlayer1 then player2 else player1
-
-exchangeForElder :: GameAction
--- exchangeForElder = get >>= (getElderLens >>> exchangeForPlayer) -- NOK
-exchangeForElder = do
+changeElderCards :: GameAction
+-- changeElderCards = get >>= (getElderLens >>> changePlayerCards) -- NOK
+changeElderCards = do
   lift $ putStrLn "Elder change cards:"
   game <- get
-  exchangeForPlayer $ getElderLens game 
-  -- exchangeForPlayer . getElderLens $ game -- NOK
+  changePlayerCards $ getElderLens game 
+  -- changePlayerCards . getElderLens $ game -- NOK
 
-exchangeForYounger :: GameAction
-exchangeForYounger = do
+changeYoungerCards :: GameAction
+changeYoungerCards = do
   lift $ putStrLn "Younger change cards:"
   game <- get
-  exchangeForPlayer $ getYoungerLens game 
+  changePlayerCards $ getYoungerLens game 
 
-
--- exchangeForElder :: GameAction
--- exchangeForElder = exchangeForPlayer True
---
--- exchangeForYounger :: GameAction
--- exchangeForYounger = exchangeForPlayer False
-
-
--- exchangeForPlayer :: Bool -> GameAction
--- exchangeForPlayer isElder = do
---   game <- get
---   let playerLens 
---         |     isElder &&      game ^. elderIsPlayer1  = player1
---         | not isElder && not (game ^. elderIsPlayer1) = player1
---         | otherwise                                   = player2
-exchangeForPlayer :: Lens' Game Player -> GameAction
-exchangeForPlayer playerLens = do
+changePlayerCards :: Lens' Game Player -> GameAction
+changePlayerCards playerLens = do
   game <- get
   lift getLine >>= (   splitOn ","                                            -- [String]
                    >>> fmap read                                              -- [Int]
@@ -207,24 +220,48 @@ declareCombinationElder :: CombinationType -> GameAction
 declareCombinationElder combinationType = do
   game <- get
   let elderLens           = getElderLens game
-      youngerLens         = getYoungerLens game
+      combLens = getCombinationLens combinationType
       elderCombinations   = getCombinations combinationType (game ^. elderLens . hand)
-      youngerCombinations = getCombinations combinationType (game ^. youngerLens . hand)
   lift $ putStrLn $ "-> Elder declare " ++ show combinationType ++ " : " ++ showDeclarations elderCombinations
   choice <- lift getLine
   let maybeElderCombination = (elderCombinations !!) <$> readMaybe choice
-      -- youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( elderCombi <= ) youngerCombinations) maybeElderCombination
-      -- youngerUpperCombinations = maybe youngerCombinations (\elderCombi -> filter ( ( GT /= ) . compareLength elderCombi) youngerCombinations) maybeElderCombination
-      responseChoices = getResponseChoices maybeElderCombination youngerCombinations
   lift $ putStrLn $ "[Elder] " ++ show combinationType ++ " : " ++ fromMaybe "Nothing" (showDeclaration <$> maybeElderCombination) 
+  combLens .= maybeElderCombination
+
+declareCombinationResponse :: CombinationType -> GameAction
+declareCombinationResponse combinationType = do
+  game <- get
+  let youngerLens           = getYoungerLens game
+      maybeElderCombination = game ^. getCombinationLens combinationType
+      youngerCombinations   = getCombinations combinationType (game ^. youngerLens . hand)
+      responseChoices       = getResponseChoices maybeElderCombination youngerCombinations
   lift $ putStrLn $ "-> Younger response " ++ show combinationType ++ " : " ++ show responseChoices
   choiceYounger <- lift getLine
   let maybeChoiceYounger = (responseChoices !!) <$> readMaybe choiceYounger
-  declarationWinner <- lift $ getDeclarationWinner responseChoices maybeElderCombination maybeChoiceYounger
-  getWinnerCombinationLens combinationType .= declarationWinner
+  lift $ putStrLn $ "[Younger] " ++ show (fromMaybe Good (fst <$> maybeChoiceYounger))
+  (declarationWinner, combination) <- lift $ getDeclarationWinner responseChoices maybeElderCombination maybeChoiceYounger
+  getWinnerLens      combinationType .= declarationWinner
+  getCombinationLens combinationType .= combination
   (getElderLens game . dealPoints) %= if declarationWinner == Elder 
                                          then ( + maybe 0 getCombinationPoints maybeElderCombination )
                                          else id
+
+setCombinationElderPoints :: CombinationType -> GameAction
+setCombinationElderPoints Point           = return ()
+setCombinationElderPoints combinationType = do
+  game <- get
+  if game ^. getWinnerLens combinationType /= Elder
+     then return ()
+     else do
+       let maybeWinComb = game ^. getCombinationLens combinationType
+           combinations = getCombinations combinationType (game ^. getElderLens game . hand)
+           candidates   = getSmallerCombinations maybeWinComb combinations
+       lift $ putStrLn $ "-> Elder other " ++ show combinationType ++ " combinations : " ++ show candidates
+       strOthers <- lift getLine
+       let others = (candidates !!) . read <$> splitOn "," strOthers
+       sequence_ $ (lift . putStrLn . ("[Elder] " ++) . showDeclarationComplete) <$> others -- show combination
+       sequence_ $ (getElderLens game . dealPoints %=) . (+) . getCombinationPoints <$> others  -- add points 
+
 
 getResponseChoices :: Maybe Combination -> [Combination] -> [(DeclarationResponse, Maybe Combination)]
 getResponseChoices Nothing [] = []
@@ -235,29 +272,27 @@ getResponseChoices (Just elderCombination) combs =
     ++ (((Equals, ) . Just) <$> filter (\c -> length (cards c) == ecSize ) combs)
     ++ (((NotGood, ) . Just) <$> filter (\c -> length (cards c) > ecSize ) combs)  
 
-getDeclarationWinner :: [(DeclarationResponse, Maybe Combination)] -> Maybe Combination -> Maybe (DeclarationResponse, Maybe Combination) -> IO DeclarationWinner
-getDeclarationWinner _  Nothing     Nothing                    = return Tie
-getDeclarationWinner _  Nothing     (Just (Good, _))           = return Tie
-getDeclarationWinner _  (Just cEld) Nothing                    = return Elder
-getDeclarationWinner _  (Just cEld) (Just (Good, _))           = return Elder
-getDeclarationWinner cs (Just cEld) (Just c@(Equals, Nothing)) = return Elder
-getDeclarationWinner cs (Just cEld) (Just c@(NotGood, _))      = return $ if c `elem` cs then Younger else Elder
-getDeclarationWinner cs (Just cEld) (Just c@(Equals, Just cYoung)) =
-  if c `notElem` cs
-     then return Elder
+getDeclarationWinner :: [(DeclarationResponse, Maybe Combination)] -> Maybe Combination -> Maybe (DeclarationResponse, Maybe Combination) -> IO (DeclarationWinner, Maybe Combination)
+getDeclarationWinner _  Nothing     Nothing                    = return (Tie, Nothing)
+getDeclarationWinner _  Nothing     (Just (Good, _))           = return (Tie, Nothing)
+getDeclarationWinner _  (Just cEld) Nothing                    = return (Elder, Just cEld)
+getDeclarationWinner _  (Just cEld) (Just (Good, _))           = return (Elder, Just cEld)
+getDeclarationWinner ds (Just cEld) (Just c@(Equals, Nothing)) = return (Elder, Just cEld)
+getDeclarationWinner ds (Just cEld) (Just d@(NotGood, mcYoung)) = return $ if d `elem` ds 
+                                                                             then (Younger, mcYoung) 
+                                                                             else (Elder, Just cEld)
+getDeclarationWinner ds (Just cEld) (Just d@(Equals, Just cYoung)) =
+  if d `notElem` ds
+     then return (Elder, Just cEld)
      else do
-       let (winner, response) = case compare cEld cYoung of
-                                  EQ -> (Tie, Equals)
-                                  LT -> (Younger, NotGood)
-                                  GT -> (Elder, Good)
+       let (winner, response, combination) = 
+             case compare cEld cYoung of
+               EQ -> (Tie,     Equals,  Just cEld)
+               LT -> (Younger, NotGood, Just cYoung)
+               GT -> (Elder,   Good,    Just cEld)
        putStrLn $ "[Elder] " ++ showDeclarationComplete cEld
        putStrLn $ "[Younger] " ++ show response
-       return winner
-
-getWinnerCombinationLens :: CombinationType ->  Lens' Game DeclarationWinner
-getWinnerCombinationLens Point    = pointWinner
-getWinnerCombinationLens Sequence = sequenceWinner
-getWinnerCombinationLens Set      = setWinner
+       return (winner, combination)
 
 nextDealNum :: Deal -> Deal
 nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN

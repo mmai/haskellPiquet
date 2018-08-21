@@ -86,7 +86,7 @@ getCombinations Point =  sortByColor
                          >>> (Combination Point  <$>)
 getCombinations Sequence = sortByColor
                        >>> toList
-                       >>> groupBy (\ca cb -> succ (rank ca ) == rank cb) 
+                       >>> groupBy (\ca cb -> (rank ca /= maxBound) && succ (rank ca ) == rank cb) 
                        >>> filter (\cards -> length cards > 2)
                        >>> fmap fromList 
                        >>> (Combination Sequence  <$>)
@@ -98,3 +98,6 @@ getCombinations Set =   sortByRank
                      >>> (Combination Set  <$>)
 
 
+getSmallerCombinations :: Maybe Combination -> [Combination] -> [Combination]
+getSmallerCombinations Nothing = const []
+getSmallerCombinations (Just comb) = filter (< comb)
