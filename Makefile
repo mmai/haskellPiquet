@@ -5,7 +5,7 @@ docs:
 	stack haddock --open
 	stack hoogle -- generate --local
 	stack hoogle -- server --local --port=8080
-test:
+tests:
 	stack test
 run:
 	stack exec piquet-exe 

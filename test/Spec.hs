@@ -1,2 +1,7 @@
+module Main where
+
+import GameTests (tests)
+
 main :: IO ()
-main = putStrLn "Test suite not yet implemented"
+main = do
+  GameTests.tests

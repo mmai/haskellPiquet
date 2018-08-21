@@ -2,10 +2,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
 
-module Game
-    ( play
-    , Game
-    ) where
+module Game where
+-- module Game
+--     ( play
+--     , Game
+--     ) where
 
 import Cards
 import Combinations
@@ -56,7 +57,7 @@ makeLenses ''Player
 instance Show Player where
   show p = (p ^. name) ++ " : "  ++ show (p ^. dealPoints) ++ " : "++ show (p ^. hand)
 
-data DeclarationResponse = Good | NotGood | Equals deriving (Show)
+data DeclarationResponse = Good | NotGood | Equals deriving (Eq, Show)
 
 data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 
@@ -225,28 +226,28 @@ declareCombinationElder combinationType = do
                                          then ( + maybe 0 getCombinationPoints maybeElderCombination )
                                          else id
 
-getResponseChoices :: Maybe Combination -> [Combination] -> [(DeclarationResponse, Combination)]
+getResponseChoices :: Maybe Combination -> [Combination] -> [(DeclarationResponse, Maybe Combination)]
 getResponseChoices Nothing [] = []
--- getResponseChoices Nothing combs = (Equals, Nothing) : ((NotGood, ) <$> combs)
-getResponseChoices Nothing combs = ((NotGood, ) <$> combs)
+getResponseChoices Nothing combs = (Equals, Nothing) : ((NotGood, ) . Just <$> combs)
 getResponseChoices (Just elderCombination) combs = 
-  let ecSize = length elderCombination in
+  let ecSize = length (cards elderCombination) in
     [ (Good, Nothing) ] 
-    ++ bool [] ((Equals, ) <$> (filter (\c -> length c == ecSize ) combs))  
-    ++ bool [] ((NotGood, ) <$> (filter (\c -> length c > ecSize ) combs))  
+    ++ (((Equals, ) . Just) <$> filter (\c -> length (cards c) == ecSize ) combs)
+    ++ (((NotGood, ) . Just) <$> filter (\c -> length (cards c) > ecSize ) combs)  
 
-getDeclarationWinner :: [(DeclarationResponse, Combination)] -> Maybe Combination -> Maybe (DeclarationResponse, Combination) -> IO DeclarationWinner
+getDeclarationWinner :: [(DeclarationResponse, Maybe Combination)] -> Maybe Combination -> Maybe (DeclarationResponse, Maybe Combination) -> IO DeclarationWinner
 getDeclarationWinner _  Nothing     Nothing                    = return Tie
 getDeclarationWinner _  Nothing     (Just (Good, _))           = return Tie
 getDeclarationWinner _  (Just cEld) Nothing                    = return Elder
 getDeclarationWinner _  (Just cEld) (Just (Good, _))           = return Elder
-getDeclarationWinner cs (Just cEld) (Just c@(NotGood, cYoung)) = return $ if c `elem` cs then Younger else Elder
-getDeclarationWinner cs (Just cEld) (Just (Tie, cYoung))       =
+getDeclarationWinner cs (Just cEld) (Just c@(Equals, Nothing)) = return Elder
+getDeclarationWinner cs (Just cEld) (Just c@(NotGood, _))      = return $ if c `elem` cs then Younger else Elder
+getDeclarationWinner cs (Just cEld) (Just c@(Equals, Just cYoung)) =
   if c `notElem` cs
      then return Elder
      else do
        let (winner, response) = case compare cEld cYoung of
-                                  EQ -> (Tie, Tie)
+                                  EQ -> (Tie, Equals)
                                   LT -> (Younger, NotGood)
                                   GT -> (Elder, Good)
        putStrLn $ "[Elder] " ++ showDeclarationComplete cEld
