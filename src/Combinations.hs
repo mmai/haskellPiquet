@@ -86,8 +86,9 @@ getCombinations Point =  sortByColor
                          >>> (Combination Point  <$>)
 getCombinations Sequence = sortByColor
                        >>> toList
-                       >>> groupBy (\ca cb -> (rank ca /= maxBound) && succ (rank ca ) == rank cb) 
+                       >>> foldl addIfNextInSequence []
                        >>> filter (\cards -> length cards > 2)
+                       >>> fmap reverse -- because of foldl
                        >>> fmap fromList 
                        >>> (Combination Sequence  <$>)
 getCombinations Set =   sortByRank
@@ -97,6 +98,13 @@ getCombinations Set =   sortByRank
                      >>> fmap fromList 
                      >>> (Combination Set  <$>)
 
+addIfNextInSequence :: [[Card]] -> Card -> [[Card]]
+addIfNextInSequence [] c = [[c]]
+addIfNextInSequence [[]] c = [[c]]
+addIfNextInSequence acc@(current@(prev:_):rest) c = 
+  if (rank prev /= maxBound) && succ (rank prev ) == rank c 
+     then (c:current):rest
+     else [c]:acc
 
 getSmallerCombinations :: Maybe Combination -> [Combination] -> [Combination]
 getSmallerCombinations Nothing = const []
