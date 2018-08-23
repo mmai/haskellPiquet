@@ -1,6 +1,7 @@
 module TestData where
 
 import Data.Set.Ordered
+import Control.Lens
 
 import Game
 import Cards
@@ -29,6 +30,7 @@ winningComb = Combination Sequence $
                  ]
 
 pl = Player { _hand = handElder
+            , _isElder = True
             , _leftUntilCarteRouge = handElder
             , _dealPoints = 0
             , _gamePoints = 0
@@ -41,8 +43,7 @@ testGame = Game { _dealNum = One
                     , _visible = fromList []
                     , _step = SetPointsSequenceElder
                     , _player1 = pl
-                    , _player2 = pl
-                    , _elderIsPlayer1 = True
+                    , _player2 = pl & isElder .~ False
                     , _pointWinner = Nobody
                     , _pointCombination = Nothing
                     , _sequenceWinner = Elder

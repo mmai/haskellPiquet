@@ -6,7 +6,7 @@ import Control.Arrow
 import Control.Applicative
 import Data.List
 import Data.Maybe
-import Data.Set.Ordered hiding (filter, empty)
+import Data.Set.Ordered hiding (filter, empty, null)
 import Data.Foldable (toList)
 
 import Cards
@@ -82,6 +82,7 @@ getCombinations :: CombinationType -> Hand -> [Combination]
 getCombinations Point =  sortByColor
                          >>> toList 
                          >>> groupBy (\ca cb -> suit ca == suit cb) 
+                         -- >>> concatMap subsequences >>> filter (not . null) 
                          >>> fmap fromList 
                          >>> (Combination Point  <$>)
 getCombinations Sequence = sortByColor
@@ -104,6 +105,7 @@ addIfNextInSequence [[]] c = [[c]]
 addIfNextInSequence acc@(current@(prev:_):rest) c = 
   if (rank prev /= maxBound) && succ (rank prev ) == rank c 
      then (c:current):rest
+     -- then (c:current):acc -- we keep subsequences
      else [c]:acc
 
 getSmallerCombinations :: Maybe Combination -> [Combination] -> [Combination]
