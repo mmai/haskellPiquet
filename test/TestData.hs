@@ -29,6 +29,7 @@ winningComb = Combination Sequence $
                  ]
 
 pl = Player { _hand = handElder
+            , _leftUntilCarteRouge = handElder
             , _dealPoints = 0
             , _gamePoints = 0
             , _points = 0

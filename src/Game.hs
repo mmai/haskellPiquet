@@ -13,7 +13,7 @@ import Combinations
 import Shuffle
 
 import Data.List.Split (splitOn)
-import Data.Set.Ordered hiding (filter)
+import Data.Set.Ordered hiding (filter, null)
 import Data.Function
 import Data.Bool
 import Data.Maybe
@@ -53,6 +53,7 @@ data Step = Start
           deriving (Enum, Show)
 
 data Player = Player { _hand :: Hand
+                     , _leftUntilCarteRouge :: Hand
                      , _dealPoints :: Int
                      , _gamePoints :: Int
                      , _points :: Int
@@ -61,7 +62,7 @@ data Player = Player { _hand :: Hand
 makeLenses ''Player
 
 instance Show Player where
-  show p = (p ^. name) ++ " : "  ++ show (p ^. dealPoints) ++ " : "++ show (p ^. hand)
+  show p = (p ^. name) ++ " : "  ++ show (p ^. dealPoints) ++ " rougeLeft=" ++ (show . size) (p ^. leftUntilCarteRouge) ++ " : "++ show (p ^. hand)
 
 data DeclarationResponse = Good | NotGood | Equals deriving (Eq, Show)
 
@@ -120,12 +121,14 @@ play = flip execStateT initialState $
  >> endGame
 
 playDeal :: GameAction
-playDeal =                  start
+playDeal = step .= Start >> start
          >>                 showDealNum
          >> step %= succ >> deal
          >>                 showGame
          >> step %= succ >> changeElderCards
+         >>                 showGame
          >> step %= succ >> changeYoungerCards
+         >>                 showGame
          >> step %= succ >> declarationElder Point
          >> step %= succ >> declarationElder Sequence
          >> step %= succ >> declarationElder Set
@@ -154,6 +157,7 @@ initialState = Game
   , _setCombination = Nothing
   }
   where initialPlayer = Player { _hand = noCards
+                               , _leftUntilCarteRouge = noCards
                                , _dealPoints = 0
                                , _gamePoints = 0
                                , _points = 0
@@ -163,58 +167,57 @@ initialState = Game
 type GameAction = StateT Game IO ()
 
 start :: GameAction
-start =  step .= Start 
-      >> pointWinner .= Nobody
+start =  pointWinner .= Nobody
       >> sequenceWinner .= Nobody
       >> setWinner .= Nobody
       >> deck .= sortedDeck
       >> shuffle
 
 shuffle :: GameAction
-shuffle = do
-  state <- get
-  shuffledDeck <- lift $ shuffleIO (state ^. deck)
-  deck .= shuffledDeck
--- with arrows :
--- shuffle =  get 
---        >>= lift (liftA2 (fmap . flip (set deck)) id (view deck >>> shuffleIO)) 
---        >>= put
+shuffle = use deck >>= lift . shuffleIO >>= (deck .=)
 
 deal :: GameAction
 deal = do
   game <- get
   let (hands, stock) = drawHands (game ^. deck) 12 2 
-  player1 . hand .= hands !! 0
-  player2 . hand .= hands !! 1
-  deck .= stock
-  step .= succ Deal 
+  player1 . hand                .= hands !! 0
+  player1 . leftUntilCarteRouge .= hands !! 0
+  player2 . hand                .= hands !! 1
+  player2 . leftUntilCarteRouge .= hands !! 1
+  deck                          .= stock
 
 changeElderCards :: GameAction
--- changeElderCards = get >>= (getElderLens >>> changePlayerCards) -- NOK
 changeElderCards = do
-  lift $ putStrLn "Elder change cards:"
   game <- get
   changePlayerCards $ getElderLens game 
-  -- changePlayerCards . getElderLens $ game -- NOK
 
 changeYoungerCards :: GameAction
 changeYoungerCards = do
-  lift $ putStrLn "Younger change cards:"
   game <- get
   changePlayerCards $ getYoungerLens game 
 
 changePlayerCards :: Lens' Game Player -> GameAction
 changePlayerCards playerLens = do
   game <- get
-  lift getLine >>= (   splitOn ","                                            -- [String]
-                   >>> fmap read                                              -- [Int]
-                   >>> getCardsAtPos (game ^. playerLens . hand)              -- [Card]
-                   >>> fromList                                               -- OSet Card
-                   >>> changeCards (game ^. deck) (game ^. playerLens . hand) -- (Hand, Deck)
-                   >>> ( ($ game) . (playerLens . hand .~ )) *** (deck .~)    -- (Game, Game -> Game)
-                   >>> uncurry (&)                                            -- Game
-                   >>> put
-                  )
+  let pHand = game ^. (playerLens . hand) 
+  lift $ putStrLn $ (game ^. playerLens . name) ++ ", this is your hand : " ++ show pHand
+  when (isCarteBlanche pHand) $ declareCarteBlanche playerLens 
+  lift $ putStrLn "Change cards : "
+  stToChange <- lift getLine 
+  unless (null stToChange) $ do
+    let idxToChange        = read <$> splitOn "," stToChange                  
+        toChange           = fromList $ getCardsAtPos pHand idxToChange     
+        (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
+    (playerLens . hand ) .= newHand
+    deck                 .= newDeck
+
+declareCarteBlanche :: Lens' Game Player -> GameAction 
+declareCarteBlanche playerLens = do
+  lift $ putStrLn "Declare carte blanche (y/n) ?"
+  resp <- lift getLine
+  when (resp == "y") $ do
+    use (playerLens . hand) >>= lift . ( show >>> ("[] Carte Blanche : " ++ ) >>> putStrLn)
+    playerLens . dealPoints %= (+ 10)
 
 declareCombinationElder :: CombinationType -> GameAction
 declareCombinationElder combinationType = do
@@ -242,26 +245,37 @@ declareCombinationResponse combinationType = do
   (declarationWinner, combination) <- lift $ getDeclarationWinner responseChoices maybeElderCombination maybeChoiceYounger
   getWinnerLens      combinationType .= declarationWinner
   getCombinationLens combinationType .= combination
-  (getElderLens game . dealPoints) %= if declarationWinner == Elder 
-                                         then ( + maybe 0 getCombinationPoints maybeElderCombination )
-                                         else id
+  when (declarationWinner == Elder) $ do
+    (getElderLens game . dealPoints) %= ( + maybe 0 getCombinationPoints maybeElderCombination ) 
+    checkCarteRouge (getElderLens game) maybeElderCombination 
+
+checkCarteRouge :: Lens' Game Player -> Maybe Combination -> GameAction
+checkCarteRouge playerLens maybeCombination = do
+  leftRouge <- use (playerLens . leftUntilCarteRouge) 
+  -- Check only if Carte Rouge has not already been declared
+  when (size leftRouge > 0) $ do
+    let leftAfterCombination =  maybe leftRouge (leftRouge \\) (cards <$> maybeCombination) 
+    (playerLens . leftUntilCarteRouge) .= leftAfterCombination
+    lift $ putStrLn $ "left until Carte rouge :" ++ show leftAfterCombination
+    when (size leftAfterCombination == 0 ) $ do
+      lift $ putStrLn "[] Carte rouge -> +20"
+      (playerLens . dealPoints) %= (+20)
 
 setCombinationElderPoints :: CombinationType -> GameAction
 setCombinationElderPoints Point           = return ()
 setCombinationElderPoints combinationType = do
   game <- get
-  if game ^. getWinnerLens combinationType /= Elder
-     then return ()
-     else do
-       let maybeWinComb = game ^. getCombinationLens combinationType
-           combinations = getCombinations combinationType (game ^. getElderLens game . hand)
-           candidates   = getSmallerCombinations maybeWinComb combinations
-       lift $ putStrLn $ "-> Elder other " ++ show combinationType ++ " combinations : " ++ show candidates
-       strOthers <- lift getLine
-       let others = (candidates !!) . read <$> splitOn "," strOthers
-       sequence_ $ (lift . putStrLn . ("[Elder] " ++) . showDeclarationComplete) <$> others -- show combination
-       sequence_ $ (getElderLens game . dealPoints %=) . (+) . getCombinationPoints <$> others  -- add points 
-
+  when (game ^. getWinnerLens combinationType == Elder) $ do
+    let maybeWinComb = game ^. getCombinationLens combinationType
+        combinations = getCombinations combinationType (game ^. getElderLens game . hand)
+        candidates   = getSmallerCombinations maybeWinComb combinations
+    when (candidates /= []) $ do
+      lift $ putStrLn $ "-> Elder other " ++ show combinationType ++ " combinations : " ++ show candidates
+      strOthers <- lift getLine
+      let others = (candidates !!) . read <$> splitOn "," strOthers
+      sequence_ $ (lift . putStrLn . ("[Elder] " ++) . showDeclarationComplete) <$> others -- show combination
+      sequence_ $ (getElderLens game . dealPoints %=) . (+) . getCombinationPoints <$> others  -- add points 
+      sequence_ $ checkCarteRouge (getElderLens game) . Just <$> others 
 
 getResponseChoices :: Maybe Combination -> [Combination] -> [(DeclarationResponse, Maybe Combination)]
 getResponseChoices Nothing [] = []

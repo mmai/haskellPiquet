@@ -12,11 +12,6 @@ import Game
 import Cards
 import Combinations
 
-testNextDealNum :: Deal -> Deal -> Spec
-testNextDealNum deal ndeal =
-  it (printf "should return the next deal for : %s -> %s \n" (show deal) (show ndeal)) $
-    nextDealNum deal `shouldBe` ndeal
-
 testGetCombinations :: Spec
 testGetCombinations = 
   it "returns the correct set of combinations" $ 

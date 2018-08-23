@@ -6,7 +6,7 @@ import Control.Arrow
 import Control.Applicative
 import Data.List
 import Data.Maybe
-import Data.Set.Ordered hiding (filter)
+import Data.Set.Ordered hiding (filter, empty)
 import Data.Foldable (toList)
 
 import Cards
@@ -109,3 +109,6 @@ addIfNextInSequence acc@(current@(prev:_):rest) c =
 getSmallerCombinations :: Maybe Combination -> [Combination] -> [Combination]
 getSmallerCombinations Nothing = const []
 getSmallerCombinations (Just comb) = filter (< comb)
+
+isCarteBlanche :: Hand -> Bool
+isCarteBlanche h = filter (\c -> rank c `elem` [King, Queen, Jack]) (toList h) == empty
