@@ -8,4 +8,4 @@ build:
 tests:
 	stack test --file-watch
 run:
-	stack exec piquet-exe 
+	stack exec piquet-exe 8888

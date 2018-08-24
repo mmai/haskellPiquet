@@ -24,6 +24,7 @@ import Control.Arrow
 import Control.Applicative
 import Rainbow
 import System.Random
+import System.IO (hGetLine, hPutStrLn, Handle, stderr)
 
 data Deal = One | Two | Three | Four | Five | Six deriving (Bounded, Eq, Enum, Show)
 
@@ -59,6 +60,7 @@ data Player = Player { _hand :: Hand
                      , _gamePoints :: Int
                      , _points :: Int
                      , _name :: String
+                     , _sockHandle :: Handle
                      } 
 makeLenses ''Player
 
@@ -114,13 +116,15 @@ getWinnerLens Set      = setWinner
 
 ------- 
 
-play :: IO Game 
-play = flip execStateT initialState $ do
-  elderIsPlayer1 <- lift (randomRIO (True, False)) 
-  assign (player1 . isElder ) elderIsPlayer1
-  assign (player2 . isElder ) (not elderIsPlayer1)
-  replicateM_ 6 playDeal
-  endGame
+play :: Handle -> Handle -> IO () 
+play p1Handle p2Handle = do
+  game <- flip execStateT (mkInitialState p1Handle p2Handle) $ do
+    elderIsPlayer1 <- lift (randomRIO (True, False)) 
+    assign (player1 . isElder ) elderIsPlayer1
+    assign (player2 . isElder ) (not elderIsPlayer1)
+    replicateM_ 6 playDeal
+    endGame
+  return ()
 
 playDeal :: GameAction
 playDeal = step .= Start >> start
@@ -143,13 +147,13 @@ declarationElder ct = declareCombinationElder ct
    >> step %= succ >> declareCombinationResponse ct
    >> step %= succ >> setCombinationElderPoints ct
 
-initialState = Game
+mkInitialState p1Handle p2Handle = Game
   { _dealNum = One
   , _deck = sortedDeck
   , _visible = fromList []
   , _step = Start
-  , _player1 = initialPlayer & name .~ "Roméo"
-  , _player2 = initialPlayer & name .~ "Juliette"
+  , _player1 = initialPlayer & name .~ "Roméo" & sockHandle .~ p1Handle
+  , _player2 = initialPlayer & name .~ "Juliette" & sockHandle .~ p2Handle
   , _pointWinner = Nobody
   , _pointCombination = Nothing
   , _sequenceWinner = Nobody
@@ -164,6 +168,7 @@ initialState = Game
                                , _gamePoints = 0
                                , _points = 0
                                , _name = "undefined"
+                               , _sockHandle = stderr
                                }
 
 type GameAction = StateT Game IO ()
@@ -201,11 +206,12 @@ changeYoungerCards = do
 changePlayerCards :: Lens' Game Player -> GameAction
 changePlayerCards playerLens = do
   game <- get
-  let pHand = game ^. (playerLens . hand) 
-  lift $ putStrLn $ (game ^. playerLens . name) ++ ", this is your hand : " ++ show pHand
+  let pHand = game ^. playerLens . hand 
+      pSock = game ^. playerLens . sockHandle
+  lift $ hPutStrLn pSock $ (game ^. playerLens . name) ++ ", this is your hand : " ++ show pHand
   when (isCarteBlanche pHand) $ declareCarteBlanche playerLens 
-  lift $ putStrLn "Change cards : "
-  stToChange <- lift getLine 
+  lift $ hPutStrLn pSock "Change cards : "
+  stToChange <- lift (hGetLine pSock) 
   unless (null stToChange) $ do
     let idxToChange        = read <$> splitOn "," stToChange                  
         toChange           = fromList $ getCardsAtPos pHand idxToChange     
@@ -213,40 +219,48 @@ changePlayerCards playerLens = do
     deck                             .= newDeck
     playerLens . hand                .= newHand
     playerLens . leftUntilCarteRouge .= newHand
+    lift $ hPutStrLn pSock $ "Your new hand : " ++ show newHand
 
 declareCarteBlanche :: Lens' Game Player -> GameAction 
 declareCarteBlanche playerLens = do
-  lift $ putStrLn "Declare carte blanche (y/n) ?"
-  resp <- lift getLine
+  game <- get
+  let pHand = game ^. playerLens . hand 
+      pSock = game ^. playerLens . sockHandle
+  lift $ hPutStrLn pSock "Declare carte blanche (y/n) ?"
+  resp <- lift (hGetLine pSock)
   when (resp == "y") $ do
-    use (playerLens . hand) >>= lift . ( show >>> ("[] Carte Blanche : " ++ ) >>> putStrLn)
+    display $ "[] Carte Blanche : " ++ show pHand
     -- playerLens . dealPoints %= (+ 10)
     addDealPoints playerLens 10
 
 declareCombinationElder :: CombinationType -> GameAction
 declareCombinationElder combinationType = do
   game <- get
-  let elderLens           = getElderLens game
-      combLens = getCombinationLens combinationType
-      elderCombinations   = getCombinations combinationType (game ^. elderLens . hand)
-  lift $ putStrLn $ "-> Elder declare " ++ show combinationType ++ " : " ++ showDeclarations elderCombinations
-  choice <- lift getLine
+  elderHand <- use ((getElderLens game) . hand)
+  elderSock <- use ((getElderLens game) . sockHandle)
+  lift $ hPutStrLn elderSock $ show elderHand
+  let   elderCombinations = getCombinations combinationType elderHand
+      -- elderCombinations = getCombinations combinationType (game ^. elderLens . hand)
+  lift $ hPutStrLn elderSock $ "Declare " ++ show combinationType ++ " : " ++ showDeclarations elderCombinations
+  choice <- lift $ hGetLine elderSock
   let maybeElderCombination = (elderCombinations !!) <$> readMaybe choice
-  lift $ putStrLn $ "[Elder] " ++ show combinationType ++ " : " ++ fromMaybe "Nothing" (showDeclaration <$> maybeElderCombination) 
-  combLens .= maybeElderCombination
+  display $ "[Elder] " ++ show combinationType ++ " : " ++ fromMaybe "Nothing" (showDeclaration <$> maybeElderCombination) 
+  (getCombinationLens combinationType) .= maybeElderCombination
 
 declareCombinationResponse :: CombinationType -> GameAction
 declareCombinationResponse combinationType = do
   game <- get
+  youngerSock <- use $ getYoungerLens game . sockHandle
   let youngerLens           = getYoungerLens game
       maybeElderCombination = game ^. getCombinationLens combinationType
       youngerCombinations   = getCombinations combinationType (game ^. youngerLens . hand)
       responseChoices       = getResponseChoices maybeElderCombination youngerCombinations
-  lift $ putStrLn $ "-> Younger response " ++ show combinationType ++ " : " ++ show responseChoices
-  choiceYounger <- lift getLine
+  lift $ hPutStrLn youngerSock $ "Response " ++ show combinationType ++ " : " ++ show responseChoices
+  choiceYounger <- lift $ hGetLine youngerSock
   let maybeChoiceYounger = (responseChoices !!) <$> readMaybe choiceYounger
-  lift $ putStrLn $ "[Younger] " ++ show (fromMaybe Good (fst <$> maybeChoiceYounger))
-  (declarationWinner, combination) <- lift $ getDeclarationWinner responseChoices maybeElderCombination maybeChoiceYounger
+  display $ "[Younger] " ++ show (fromMaybe Good (fst <$> maybeChoiceYounger))
+  (declarationWinner, combination, maybeToDisplay) <- lift $ getDeclarationWinner responseChoices maybeElderCombination maybeChoiceYounger
+  maybe (return ()) display maybeToDisplay
   getWinnerLens      combinationType .= declarationWinner
   getCombinationLens combinationType .= combination
   when (declarationWinner == Elder) $ do
@@ -255,14 +269,15 @@ declareCombinationResponse combinationType = do
 
 checkCarteRouge :: Lens' Game Player -> Maybe Combination -> GameAction
 checkCarteRouge playerLens maybeCombination = do
+  pSock <- use (playerLens . sockHandle) 
   leftRouge <- use (playerLens . leftUntilCarteRouge) 
   -- Check only if Carte Rouge has not already been declared
   when (size leftRouge > 0) $ do
     let leftAfterCombination =  maybe leftRouge (leftRouge \\) (cards <$> maybeCombination) 
     (playerLens . leftUntilCarteRouge) .= leftAfterCombination
-    lift $ putStrLn $ "left until Carte rouge :" ++ show leftAfterCombination
+    lift $ hPutStrLn pSock $ "left until Carte rouge :" ++ show leftAfterCombination
     when (size leftAfterCombination == 0 ) $ do
-      lift $ putStrLn "[] Carte rouge -> +20"
+      display "[] Carte rouge -> +20"
       addDealPoints playerLens 20
 
 addDealPoints :: Lens' Game Player -> Int -> GameAction
@@ -276,10 +291,10 @@ addDealPoints playerLens points = do
   when (pointsBefore < 30 && 30 <= (pointsBefore + points)) $  -- first time player go over 30 points
     if gameStep < Play
        then when (opponentPoints <= 1) $ do
-             lift $ putStrLn "[] REPIQUE -> +60" 
+             display "[] REPIQUE -> +60" 
              playerLens . dealPoints %= (+ 60 )
        else when (opponentPoints == 0) $ do
-             lift $ putStrLn "[] PIQUE -> +30" 
+             display "[] PIQUE -> +30" 
              playerLens . dealPoints %= (+ 30 )
 
 setCombinationElderPoints :: CombinationType -> GameAction
@@ -291,10 +306,10 @@ setCombinationElderPoints combinationType = do
         combinations = getCombinations combinationType (game ^. getElderLens game . hand)
         candidates   = getSmallerCombinations maybeWinComb combinations
     when (candidates /= []) $ do
-      lift $ putStrLn $ "-> Elder other " ++ show combinationType ++ " combinations : " ++ show candidates
+      lift $ hPutStrLn (game ^. (getElderLens game) . sockHandle) $ "-> Elder other " ++ show combinationType ++ " combinations : " ++ show candidates
       strOthers <- lift getLine
       let others = (candidates !!) . read <$> splitOn "," strOthers
-      sequence_ $ (lift . putStrLn . ("[Elder] " ++) . showDeclarationComplete) <$> others -- show combination
+      sequence_ $ (display . ("[Elder] " ++) . showDeclarationComplete) <$> others -- show combination
       -- sequence_ $ (getElderLens game . dealPoints %=) . (+) . getCombinationPoints <$> others  -- add points 
       sequence_ $ (addDealPoints (getElderLens game) . getCombinationPoints) <$> others  -- add points 
       sequence_ $ checkCarteRouge (getElderLens game) . Just <$> others 
@@ -308,42 +323,47 @@ getResponseChoices (Just elderCombination) combs =
     ++ (((Equals, ) . Just) <$> filter (\c -> length (cards c) == ecSize ) combs)
     ++ (((NotGood, ) . Just) <$> filter (\c -> length (cards c) > ecSize ) combs)  
 
-getDeclarationWinner :: [(DeclarationResponse, Maybe Combination)] -> Maybe Combination -> Maybe (DeclarationResponse, Maybe Combination) -> IO (DeclarationWinner, Maybe Combination)
-getDeclarationWinner _  Nothing     Nothing                    = return (Tie, Nothing)
-getDeclarationWinner _  Nothing     (Just (Good, _))           = return (Tie, Nothing)
-getDeclarationWinner _  (Just cEld) Nothing                    = return (Elder, Just cEld)
-getDeclarationWinner _  (Just cEld) (Just (Good, _))           = return (Elder, Just cEld)
-getDeclarationWinner ds (Just cEld) (Just c@(Equals, Nothing)) = return (Elder, Just cEld)
+getDeclarationWinner :: [(DeclarationResponse, Maybe Combination)] -> Maybe Combination -> Maybe (DeclarationResponse, Maybe Combination) -> IO (DeclarationWinner, Maybe Combination, Maybe String)
+getDeclarationWinner _  Nothing     Nothing                    = return (Tie, Nothing, Nothing)
+getDeclarationWinner _  Nothing     (Just (Good, _))           = return (Tie, Nothing, Nothing)
+getDeclarationWinner _  (Just cEld) Nothing                    = return (Elder, Just cEld, Nothing)
+getDeclarationWinner _  (Just cEld) (Just (Good, _))           = return (Elder, Just cEld, Nothing)
+getDeclarationWinner ds (Just cEld) (Just c@(Equals, Nothing)) = return (Elder, Just cEld, Nothing)
 getDeclarationWinner ds (Just cEld) (Just d@(NotGood, mcYoung)) = return $ if d `elem` ds 
-                                                                             then (Younger, mcYoung) 
-                                                                             else (Elder, Just cEld)
+                                                                             then (Younger, mcYoung, Nothing) 
+                                                                             else (Elder, Just cEld, Nothing)
 getDeclarationWinner ds (Just cEld) (Just d@(Equals, Just cYoung)) =
   if d `notElem` ds
-     then return (Elder, Just cEld)
+     then return (Elder, Just cEld, Nothing)
      else do
        let (winner, response, combination) = 
              case compare cEld cYoung of
                EQ -> (Tie,     Equals,  Just cEld)
                LT -> (Younger, NotGood, Just cYoung)
                GT -> (Elder,   Good,    Just cEld)
-       putStrLn $ "[Elder] " ++ showDeclarationComplete cEld
-       putStrLn $ "[Younger] " ++ show response
-       return (winner, combination)
+           toDisplay = "[Elder] " ++ showDeclarationComplete cEld ++ "\n[Younger] " ++ show response
+       return (winner, combination, Just toDisplay )
 
 nextDealNum :: Deal -> Deal
 nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN
 -- nextDealNum = liftA2 (`bool` maxBound) succ (maxBound == )
 
+display :: String -> GameAction
+display message = do
+  game <- get
+  lift $ hPutStrLn (game ^. player1 . sockHandle) message
+  lift $ hPutStrLn (game ^. player2 . sockHandle) message
+
 endGame :: GameAction
-endGame =  lift (print "---- RESULTS ------")
+endGame =  display "---- RESULTS ------"
         >> showGame
 
 showGame :: GameAction
-showGame = get >>= ( print >>> lift ) 
+showGame = get >>= display . show
 
 showDeck :: GameAction
 showDeck = get >>= (view deck >>> show >>> putStrLn >>> lift) 
 
 showDealNum :: GameAction
-showDealNum = get >>= (view dealNum >>> show >>> ("--------- " ++ ) >>> putStrLn >>> lift) 
+showDealNum = get >>= (view dealNum >>> show >>> ("--------- " ++ ) >>> display) 
 
