@@ -19,13 +19,9 @@ sockHandler :: Socket -> IO ()
 sockHandler sock = do
     (handleP1, _, _) <- accept sock
     configureSocketHandler handleP1
-    -- hSetBuffering handleP1 NoBuffering
-    -- hSetEncoding handleP1 utf8
     hPutStrLn handleP1 "New game. Waiting for your opponent to connect..."
     (handleP2, _, _) <- accept sock
     configureSocketHandler handleP2
-    -- hSetBuffering handleP2 NoBuffering
-    -- hSetEncoding handleP2 utf8
     hPutStrLn handleP2 "Game starting..."
     forkIO $ play handleP1 handleP2
     sockHandler sock
