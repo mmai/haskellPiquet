@@ -26,7 +26,6 @@ dependencies:
 - random
 - mtl
 - lens
-- rainbow
 - containers
 - ordered-containers
 
