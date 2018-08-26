@@ -104,6 +104,12 @@ elder f g = if g ^. player1 . isElder then player1 f g else player2 f g
 younger :: Lens' Game Player
 younger f g = if g ^. player1 . isElder then player2 f g else player1 f g
 
+activePlayer :: Lens' Game Player
+activePlayer f g = if g ^. isElderToPlay then elder f g else younger f g
+
+inactivePlayer :: Lens' Game Player
+inactivePlayer f g = if g ^. isElderToPlay then younger f g else elder f g
+
 getOpponentLens :: Lens' Game Player -> Lens' Game Player
 getOpponentLens playerLens f g = if g ^. playerLens . isElder then younger f g else elder f g
 
@@ -140,7 +146,7 @@ playDeal = step .= Start >> start
          >> step %= succ >> declarationElder Point
          >> step %= succ >> declarationElder Sequence
          >> step %= succ >> declarationElder Set
-         >> step %= succ >> playNextCard -- elder play first card before younger declarations
+         >> step %= succ >> playFirstCard -- elder play first card before younger declarations
          >> step %= succ >> setCombinationPoints Younger Point
          >> step %= succ >> setCombinationPoints Younger Sequence
          >> step %= succ >> setCombinationPoints Younger Set
@@ -385,65 +391,66 @@ getDeclarationWinner ds (Just cEld) (Just d@(Equals, Just cYoung)) =
            toDisplay = "[Elder] " ++ showDeclarationComplete cEld ++ "\n[Younger] " ++ show response
        return (winner, combination, Just toDisplay )
 
+playFirstCard :: GameAction
+playFirstCard = use activePlayer >>= lift chooseCard >>= playCard
+
 playCards :: GameAction
 playCards = do
-  playNextCard 
-  game <- get
+  use activePlayer >>= lift chooseCard >>= playCard
+  use step <&> ( == PlayEnd ) >>= bool playCards checkPlayPoints
+  -- game <- get
+  -- card <- lift $ chooseCard (game ^. activePlayer)
+  -- playCard card
+  -- gameEnded <- use step <&> ( == PlayEnd )
   -- let finished = length (game ^. player1 . hand) == 0 && length (game ^. player2 . hand) == 0 
-  if game ^. step == PlayEnd 
-     then checkPlayPoints
-     else playCards
+  -- if gameEnded then checkPlayPoints else playCards
 
-playNextCard :: GameAction
-playNextCard = do
-  let nextPlayer isElder = if isElder then elder else younger
-  elderTurn <- use isElderToPlay
-  pSock <- use (nextPlayer elderTurn . sockHandle)
-  cards <- toList <$> use ( nextPlayer elderTurn . hand )
-  lift $ hPutStrLn pSock $ "Choose a card to play : " ++ show cards
-  choice <- lift $ liftM (filter (/= '\r')) $ hGetLine pSock
-  let maybeChoice = (cards !!) <$> readMaybe choice
+chooseCard :: Player -> IO Card
+chooseCard player = do
+  let pSock = player ^. sockHandle
+      cards = toList ( player ^. hand )
+  hPutStrLn pSock $ "Choose a card to play : " ++ show cards
+  choice <- liftM (filter (/= '\r')) $ hGetLine pSock
+  let maybeChoice = join $ (cards ^? idx) <$> readMaybe choice
   case maybeChoice of
     Nothing -> do
-      lift $ hPutStrLn pSock "Bad choice"
-      playNextCard
-    Just card -> playCard (nextPlayer elderTurn) card
+      hPutStrLn pSock "Bad choice"
+      chooseCard player
+    Just card -> return card
 
-playCard :: Lens' Game Player -> Card -> GameAction
-playCard playerLens card = do
+
+playCard :: Card -> GameAction
+playCard card = do
   game <- get
-  when (game ^. isElderToPlay == (game ^. playerLens . isElder )) $ do
-    pSock <- use $ playerLens . sockHandle
+  when ( card `member` game ^. activePlayer . hand ) $ do
+    pSock <- use $ activePlayer . sockHandle
     display $ "played = " ++ show card
-    playerLens . hand %= (\\ fromList [card])
-    played <- use (getOpponentLens playerLens . cardPlayed)
-    case played of
+    activePlayer . hand %= delete card
+    case (game ^. inactivePlayer . cardPlayed) of
       Nothing -> do -- First to play in the turn
-        playerLens . cardPlayed .= Just card
-        addDealPoints playerLens 1
+        activePlayer . cardPlayed .= Just card
+        addDealPoints activePlayer 1
         isElderToPlay %= not
       Just opponentCard -> do -- Second to play in the turn
-        remaining <- use (playerLens . hand)
-        let won = (suit card == suit opponentCard && rank card > rank opponentCard)
-            lastTurn = length remaining == 0
-        if won 
+        let activePlayerWon = (suit card == suit opponentCard && rank card > rank opponentCard)
+        if activePlayerWon 
            then do
              lift $ hPutStrLn pSock $ " you won "
-             lift $ hPutStrLn (game ^. getOpponentLens playerLens . sockHandle ) " you lost "
-             addDealPoints playerLens 1 
-             playerLens . dealWons %= (+1)
+             lift $ hPutStrLn (game ^. inactivePlayer . sockHandle ) " you lost "
+             addDealPoints activePlayer 1 
+             activePlayer . dealWons %= (+1)
            else do
-             lift $ hPutStrLn (game ^. getOpponentLens playerLens . sockHandle ) " you won "
+             lift $ hPutStrLn (game ^. inactivePlayer . sockHandle ) " you won "
              lift $ hPutStrLn pSock $ " you lost "
-             getOpponentLens playerLens . dealWons %= (+1)
+             inactivePlayer . dealWons %= (+1)
              isElderToPlay %= not -- opponent to play next turn
-        if lastTurn 
+        if (length (game ^. activePlayer . hand) == 0) -- this is the last turn 
            then do
-             addDealPoints (if won then playerLens else getOpponentLens playerLens) 1 
+             addDealPoints (if activePlayerWon then activePlayer else inactivePlayer) 1 
              step .= PlayEnd
            else do
-             playerLens . cardPlayed .= Nothing
-             getOpponentLens playerLens . cardPlayed .= Nothing
+             activePlayer   . cardPlayed .= Nothing
+             inactivePlayer . cardPlayed .= Nothing
 
 nextDealNum :: Deal -> Deal
 nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN
