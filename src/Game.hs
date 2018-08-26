@@ -392,18 +392,12 @@ getDeclarationWinner ds (Just cEld) (Just d@(Equals, Just cYoung)) =
        return (winner, combination, Just toDisplay )
 
 playFirstCard :: GameAction
-playFirstCard = use activePlayer >>= lift chooseCard >>= playCard
+playFirstCard = use activePlayer >>= lift . chooseCard >>= playCard
 
 playCards :: GameAction
 playCards = do
-  use activePlayer >>= lift chooseCard >>= playCard
+  use activePlayer >>= lift . chooseCard >>= playCard
   use step <&> ( == PlayEnd ) >>= bool playCards checkPlayPoints
-  -- game <- get
-  -- card <- lift $ chooseCard (game ^. activePlayer)
-  -- playCard card
-  -- gameEnded <- use step <&> ( == PlayEnd )
-  -- let finished = length (game ^. player1 . hand) == 0 && length (game ^. player2 . hand) == 0 
-  -- if gameEnded then checkPlayPoints else playCards
 
 chooseCard :: Player -> IO Card
 chooseCard player = do
@@ -411,18 +405,19 @@ chooseCard player = do
       cards = toList ( player ^. hand )
   hPutStrLn pSock $ "Choose a card to play : " ++ show cards
   choice <- liftM (filter (/= '\r')) $ hGetLine pSock
-  let maybeChoice = join $ (cards ^? idx) <$> readMaybe choice
+  -- let maybeChoice = join $ (cards ^?) <$> ix <$> readMaybe choice
+  let maybeChoice = join $ (cards ^?) <$> element <$> readMaybe choice
   case maybeChoice of
     Nothing -> do
       hPutStrLn pSock "Bad choice"
       chooseCard player
     Just card -> return card
 
-
 playCard :: Card -> GameAction
 playCard card = do
-  game <- get
-  when ( card `member` game ^. activePlayer . hand ) $ do
+  aHand <- use $ activePlayer . hand
+  when ( card `member` aHand ) $ do
+    game <- get
     pSock <- use $ activePlayer . sockHandle
     display $ "played = " ++ show card
     activePlayer . hand %= delete card
