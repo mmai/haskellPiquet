@@ -135,6 +135,34 @@ play p1Handle p2Handle = do
     endGame
   return ()
 
+-- runClient :: Server -> Client -> IO ()
+-- runClient server client = forever $ do
+--   (mid, msg) <- readMessage (client^.clientInput)
+--   handleMessage server (client^.clientId) mid msg
+--   return ()
+--
+-- readMessage :: Streams.InputStream BS.ByteString -> IO (Word8, BS.ByteString)
+-- readMessage in' = do
+--   inS <- Streams.lockingInputStream in'
+--   mid <- handleStream 1 inS
+--   lth <- handleStream 2 inS
+--   out <- if msgSize lth <= maxMsgSize
+--          then handleStream (msgSize lth) inS
+--          else return BS.empty
+--   return (midData mid, out)
+--   where
+--     midData mid' = fromIntegral $ runGet getWord8 (BL.fromStrict mid')
+--     msgSize lth' = (fromIntegral $ runGet getWord16be (BL.fromStrict lth')) :: Int
+--     handleStream len str =
+--       handle (\(SomeException e) -> do debug $ "read failed: " ++ show e; return BS.empty) $
+--         Streams.readExactly len str
+--
+-- sendMessage :: (GameMessage m, Encode m) => m -> Streams.OutputStream BS.ByteString -> IO ()
+-- sendMessage msg out' = do
+--   outS <- Streams.lockingOutputStream out'
+--   handle (\(SomeException e) -> debug $ "write failed: " ++ show e ) $
+--     Streams.write (Just $ messageOutWithIdAndLength msg) outS
+
 playDeal :: GameAction
 playDeal = step .= Start >> start
          >>                 showDealNum
@@ -428,24 +456,21 @@ playCard card = do
         isElderToPlay %= not
       Just opponentCard -> do -- Second to play in the turn
         let activePlayerWon = (suit card == suit opponentCard && rank card > rank opponentCard)
-        if activePlayerWon 
-           then do
-             lift $ hPutStrLn pSock $ " you won "
-             lift $ hPutStrLn (game ^. inactivePlayer . sockHandle ) " you lost "
-             addDealPoints activePlayer 1 
-             activePlayer . dealWons %= (+1)
-           else do
-             lift $ hPutStrLn (game ^. inactivePlayer . sockHandle ) " you won "
-             lift $ hPutStrLn pSock $ " you lost "
-             inactivePlayer . dealWons %= (+1)
-             isElderToPlay %= not -- opponent to play next turn
-        if (length (game ^. activePlayer . hand) == 0) -- this is the last turn 
-           then do
-             addDealPoints (if activePlayerWon then activePlayer else inactivePlayer) 1 
-             step .= PlayEnd
-           else do
-             activePlayer   . cardPlayed .= Nothing
-             inactivePlayer . cardPlayed .= Nothing
+        when activePlayerWon $ addDealPoints activePlayer 1 
+        if activePlayerWon then finishTurn activePlayer inactivePlayer else finishTurn inactivePlayer activePlayer 
+        when (length (game ^. activePlayer . hand) == 0) $ do -- this is the last turn 
+           addDealPoints (if activePlayerWon then activePlayer else inactivePlayer) 1 -- an additional point for the winner
+           step .= PlayEnd
+        activePlayer   . cardPlayed .= Nothing
+        inactivePlayer . cardPlayed .= Nothing
+
+finishTurn :: Lens' Game Player -> Lens' Game Player -> GameAction
+finishTurn winnerLens looserLens = do
+  game <- get
+  lift $ hPutStrLn (game ^. winnerLens . sockHandle ) " you won "
+  lift $ hPutStrLn (game ^. looserLens . sockHandle ) " you lost "
+  winnerLens . dealWons %= (+1)
+  isElderToPlay .= (game ^. winnerLens . isElder) 
 
 nextDealNum :: Deal -> Deal
 nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN

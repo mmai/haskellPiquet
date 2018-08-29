@@ -28,5 +28,6 @@ sockHandler sock = do
 
 configureSocketHandler :: Handle -> IO ()
 configureSocketHandler handle = do
-    hSetBuffering handle NoBuffering
+    -- hSetBuffering handle NoBuffering -- ??
+    -- setSocketOption handle NoDelay 1 -- disable nagle (cf. https://www.extrahop.com/company/blog/2016/tcp-nodelay-nagle-quickack-best-practices/) uncomment if responses are too slow
     hSetEncoding handle utf8
