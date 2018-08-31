@@ -28,6 +28,31 @@ dependencies:
 - lens
 - containers
 - ordered-containers
+- MonadRandom
+- aeson
+- aeson-casing
+- binary
+- time
+- wai-app-static
+- bytestring
+- distributed-process
+- distributed-process-simplelocalnet
+- distributed-process-supervisor
+- network-transport-inmemory
+- network-transport-tcp
+- megaparsec
+- monad-logger
+- monad-loops
+- resourcet
+- stm
+- text
+- formatting
+- transformers
+- wai
+- wai-websockets
+- warp
+- websockets
+- yaml
 
 library:
   source-dirs: src

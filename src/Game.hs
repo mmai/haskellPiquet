@@ -10,7 +10,7 @@ module Game where
 
 import Cards
 import Combinations
-import Shuffle
+import qualified Shuffle
 
 import Data.List.Split (splitOn)
 import Data.Set.Ordered hiding (filter, null)
@@ -25,6 +25,16 @@ import Control.Arrow
 import Control.Applicative
 import System.Random
 import System.IO (hGetLine, hPutStrLn, Handle, stderr)
+
+import Control.Distributed.Process
+import Data.Aeson
+import Data.Aeson.Casing
+import Data.Binary
+-- import Data.Map.Strict (Map)
+-- import qualified Data.Map.Strict as Map
+import Data.Text (Text)
+import GHC.Generics
+import Network.GameEngine
 
 data Deal = One | Two | Three | Four | Five | Six deriving (Bounded, Eq, Enum, Show)
 
@@ -59,7 +69,8 @@ data Player = Player { _hand :: Hand
                      , _gamePoints :: Int
                      , _points :: Int
                      , _name :: String
-                     , _sockHandle :: Handle
+                     -- , _sockHandle :: Handle
+                     , _sendPortId :: SendPortId
                      } 
 makeLenses ''Player
 
@@ -70,7 +81,8 @@ data DeclarationResponse = Good | NotGood | Equals deriving (Eq, Show)
 
 data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 
-data Game = Game { _dealNum             :: Deal
+data Game = Game { _stdGen              :: StdGen
+                 , _dealNum             :: Deal
                  , _deck                :: Deck
                  , _visible             :: Deck
                  , _step                :: Step
@@ -123,11 +135,27 @@ getWinnerLens Point    = pointWinner
 getWinnerLens Sequence = sequenceWinner
 getWinnerLens Set      = setWinner
 
+getPortIdPlayerLens :: SendPortId -> Lens' Game Player
+getPortIdPlayerLens portId f g = if g ^. player1 . sendPortId == portId then player1 f g else player2 f g
+
 ------- 
 
-play :: Handle -> Handle -> IO () 
-play p1Handle p2Handle = do
-  game <- flip execStateT (mkInitialState p1Handle p2Handle) $ do
+data Msg = SetCombination Hand
+         | ChangeName Text
+deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
+
+update :: EngineMsg Msg -> Game -> Game
+update msg = handleMsg msg
+
+handleMsg :: EngineMsg Msg -> Game -> Game
+handleMsg (Join playerId) = set (getPortIdPlayerLens playerId) (Just newPlayer)
+handleMsg (Leave playerId) = set (players . at playerId) Nothing
+handleMsg (GameMsg playerId (ChangeName newName)) =
+  set (players . ix playerId . name) newName
+
+play :: StdGen -> Handle -> Handle -> IO () 
+play stdGen p1Handle p2Handle = do
+  game <- flip execStateT (mkInitialState stdGen) $ do
     elderIsPlayer1 <- lift (randomRIO (True, False)) 
     assign (player1 . isElder ) elderIsPlayer1
     assign (player2 . isElder ) (not elderIsPlayer1)
@@ -190,13 +218,14 @@ declarationElder ct = declareCombinationElder ct
    >> step %= succ >> declareCombinationResponse ct
    >> step %= succ >> setCombinationPoints Elder ct
 
-mkInitialState p1Handle p2Handle = Game
-  { _dealNum = One
+mkInitialState stdGen = Game
+  { _stdGen = stdGen
+  , _dealNum = One
   , _deck = sortedDeck
   , _visible = fromList []
   , _step = Start
-  , _player1 = initialPlayer & name .~ "Roméo" & sockHandle .~ p1Handle
-  , _player2 = initialPlayer & name .~ "Juliette" & sockHandle .~ p2Handle
+  , _player1 = initialPlayer & name .~ "Roméo"
+  , _player2 = initialPlayer & name .~ "Juliette"
   , _isElderToPlay = True
   , _pointWinner = Nobody
   , _pointCombination = Nothing
@@ -227,7 +256,15 @@ start =  pointWinner .= Nobody
       >> shuffle
 
 shuffle :: GameAction
-shuffle = use deck >>= lift . shuffleIO >>= (deck .=)
+shuffle = use deck >>= lift . Shuffle.shuffleIO >>= (deck .=)
+
+-- shuffle :: State Game ()
+-- shuffle = do
+--   iniDeck <- use deck
+--   iniStdGen <- use stdGen
+--   let (newStdGen, newDeck) = Shuffle.shuffle iniDeck iniStdGen
+--   deck .= newDeck
+--   stdGen .= newStdGen
 
 deal :: GameAction
 deal = do

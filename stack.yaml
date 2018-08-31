@@ -39,7 +39,16 @@ packages:
 - .
 # Dependency packages to be pulled from upstream that are not in the resolver
 # (e.g., acme-missiles-0.3)
-extra-deps: [ ordered-containers-0.1.0 ]
+extra-deps:
+- ordered-containers-0.1.0
+# All this needed by cloud haskell :
+- distributed-process-0.7.4
+- distributed-process-simplelocalnet-0.2.4
+- distributed-process-supervisor-0.2.1
+- distributed-process-client-server-0.2.5.1
+- distributed-process-extras-0.3.5
+- distributed-process-async-0.2.6
+- network-transport-tcp-0.6.0
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
