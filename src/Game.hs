@@ -177,7 +177,7 @@ handleMsg (GameMsg playerId (ChangeName newName)) g =
 
 viewG :: Game -> View
 viewG g = View { viewGame = g ^. step
-               , viewPlayers = g ^. player1 . name : g ^. player1 . name : []
+               , viewPlayers = g ^. player1 . name : g ^. player2 . name : []
                , viewSampleCommands = [ChangeName (pack "Kris")]
                }
 
