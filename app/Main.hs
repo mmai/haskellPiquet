@@ -12,4 +12,4 @@ main = do
   Network.GameEngine.runGame
     (Game.mkInitialState stdGen)
     Game.update
-    Game.view
+    Game.viewG

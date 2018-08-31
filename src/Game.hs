@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RankNTypes #-}
@@ -24,15 +26,15 @@ import Control.Lens
 import Control.Arrow
 import Control.Applicative
 import System.Random
-import System.IO (hGetLine, hPutStrLn, Handle, stderr)
+import System.IO (hGetLine, hPutStrLn, Handle, stderr, stdout)
 
 import Control.Distributed.Process
-import Data.Aeson
+import Data.Aeson hiding ((.=))
 import Data.Aeson.Casing
-import Data.Binary
+import Data.Binary hiding (get)
 -- import Data.Map.Strict (Map)
 -- import qualified Data.Map.Strict as Map
-import Data.Text (Text)
+import Data.Text (Text, pack, unpack)
 import GHC.Generics
 import Network.GameEngine
 
@@ -58,7 +60,7 @@ data Step = Start
           | PlayCards
           | PlayEnd
           | End
-          deriving (Enum, Show, Ord, Eq)
+          deriving (Enum, Show, Ord, Eq, Generic, Binary, ToJSON)
 
 data Player = Player { _hand :: Hand
                      , _isElder :: Bool
@@ -69,8 +71,7 @@ data Player = Player { _hand :: Hand
                      , _gamePoints :: Int
                      , _points :: Int
                      , _name :: String
-                     -- , _sockHandle :: Handle
-                     , _sendPortId :: SendPortId
+                     , _sockHandle :: Handle
                      } 
 makeLenses ''Player
 
@@ -88,6 +89,8 @@ data Game = Game { _stdGen              :: StdGen
                  , _step                :: Step
                  , _player1             :: Player
                  , _player2             :: Player
+                 , _player1SendPortId   :: Maybe SendPortId
+                 , _player2SendPortId   :: Maybe SendPortId
                  , _isElderToPlay       :: Bool
                  , _pointWinner         :: DeclarationWinner
                  , _pointCombination    :: Maybe Combination
@@ -136,22 +139,49 @@ getWinnerLens Sequence = sequenceWinner
 getWinnerLens Set      = setWinner
 
 getPortIdPlayerLens :: SendPortId -> Lens' Game Player
-getPortIdPlayerLens portId f g = if g ^. player1 . sendPortId == portId then player1 f g else player2 f g
+getPortIdPlayerLens portId f g = if g ^. player1SendPortId  == Just portId then player1 f g else player2 f g
 
 ------- 
 
-data Msg = SetCombination Hand
-         | ChangeName Text
-deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
+--- Cloud Haskell server
+data Msg = SetCombination Hand 
+         | ChangeName Text 
+         deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
+
+data View = View { viewGame :: Step
+                 , viewPlayers :: [String]
+                 , viewSampleCommands :: [Msg]
+                 } deriving (Show, Eq, Binary, Generic)
+
+instance ToJSON View where
+  toJSON = genericToJSON $ aesonPrefix camelCase
 
 update :: EngineMsg Msg -> Game -> Game
 update msg = handleMsg msg
 
 handleMsg :: EngineMsg Msg -> Game -> Game
-handleMsg (Join playerId) = set (getPortIdPlayerLens playerId) (Just newPlayer)
-handleMsg (Leave playerId) = set (players . at playerId) Nothing
-handleMsg (GameMsg playerId (ChangeName newName)) =
-  set (players . ix playerId . name) newName
+handleMsg (Join playerId) g = 
+  if g ^. player1SendPortId == Nothing 
+     then g & player1SendPortId .~ Just playerId 
+     else if g ^. player2SendPortId == Nothing 
+            then g & player2SendPortId .~ Just playerId 
+            else g
+handleMsg (Leave playerId) g = 
+  if g ^. player1SendPortId  == Just playerId 
+     then g & player1SendPortId .~ Nothing
+     else if g ^. player2SendPortId  == Just playerId 
+            then g & player2SendPortId .~ Nothing
+            else g
+handleMsg (GameMsg playerId (ChangeName newName)) g =
+  set (getPortIdPlayerLens playerId . name) (unpack newName) g
+
+viewG :: Game -> View
+viewG g = View { viewGame = g ^. step
+               , viewPlayers = g ^. player1 . name : g ^. player1 . name : []
+               , viewSampleCommands = [ChangeName (pack "Kris")]
+               }
+
+-- end cloud Haskell
 
 play :: StdGen -> Handle -> Handle -> IO () 
 play stdGen p1Handle p2Handle = do
@@ -226,6 +256,8 @@ mkInitialState stdGen = Game
   , _step = Start
   , _player1 = initialPlayer & name .~ "Roméo"
   , _player2 = initialPlayer & name .~ "Juliette"
+  , _player1SendPortId = Nothing
+  , _player2SendPortId = Nothing
   , _isElderToPlay = True
   , _pointWinner = Nobody
   , _pointCombination = Nothing

@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+
 module Cards ( Suit(..)
             , Rank(..)
             , Card(..)
@@ -17,12 +20,16 @@ import Control.Monad.State
 import Data.List
 import Data.Set.Ordered
 import Data.Foldable (toList)
+import           Data.Binary hiding (get, put)
+import qualified Data.Binary as Bin
+import Data.Aeson
+import GHC.Generics
 
 data Suit = Clubs
           | Diamonds
           | Hearts
           | Spades
-          deriving (Eq,Enum,Ord,Bounded)
+          deriving (Eq,Enum,Ord,Bounded, Binary, Generic, FromJSON, ToJSON)
 
 instance Show Suit where
   show Diamonds = "♦"
@@ -42,7 +49,7 @@ data Rank = Seven
           | Queen
           | King
           | Ace
-          deriving (Eq,Enum,Ord,Bounded)
+          deriving (Eq,Enum,Ord,Bounded, Binary, Generic, FromJSON, ToJSON)
 
 instance Show Rank where
   show Seven = "7"
@@ -56,7 +63,7 @@ instance Show Rank where
 
 data Card = Card { rank :: Rank
                  , suit  :: Suit
-                 } deriving (Eq, Ord)
+                 } deriving (Eq, Ord, Binary, Generic, FromJSON, ToJSON)
 
 sortByColor :: Hand -> Hand
 sortByColor = fromList . (sortBy compareByColorThenRank) . toList where
@@ -74,6 +81,16 @@ sortByRank = fromList . (sortBy compareByRankThenColor) . toList where
 
 instance Show Card where
   show (Card rank suit ) = "[" ++ show rank ++ " " ++ show suit ++ "]"
+
+instance (Ord a, Binary a) => Binary (OSet a) where
+    put s = Bin.put (size s) <> mapM_ Bin.put (toList s)
+    get   = liftM fromList Bin.get
+
+instance (Ord a, ToJSON a) => ToJSON (OSet a) where
+    toJSON = toJSON . toList
+
+instance (Ord a, FromJSON a) => FromJSON (OSet a) where
+    parseJSON = fmap fromList . parseJSON
 
 type Deck = OSet Card
 type Hand = OSet Card
