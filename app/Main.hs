@@ -23,7 +23,8 @@ sockHandler sock = do
     (handleP2, _, _) <- accept sock
     configureSocketHandler handleP2
     hPutStrLn handleP2 "Game starting..."
-    forkIO $ play handleP1 handleP2
+    -- forkIO $ play handleP1 handleP2
+    forkIO $ initNetworkGame handleP1 handleP2
     sockHandler sock
 
 configureSocketHandler :: Handle -> IO ()
@@ -31,3 +32,21 @@ configureSocketHandler handle = do
     -- hSetBuffering handle NoBuffering -- ??
     -- setSocketOption handle NoDelay 1 -- disable nagle (cf. https://www.extrahop.com/company/blog/2016/tcp-nodelay-nagle-quickack-best-practices/) uncomment if responses are too slow
     hSetEncoding handle utf8
+
+data PlayerClient = CPlayer1 | CPlayer2
+
+initNetworkGame :: Handle -> Handle -> IO ()
+initNetworkGame h1 h2 = do
+  forkIO $ sendToGameAs gh CPlayer1 h1
+  forkIO $ sendToGameAs gh CPlayer2 h2
+  forkIO $ listenGame gh h1 h2
+
+sendToGameAs :: Handler -> PlayerClient -> Handler -> IO ()
+sendToGameAs gh pclient h = do
+  message <- hGetLine h
+  hPutStrLn gh $ show pclient ++ ": " ++ message
+  sendToGameAs gh pclient h
+
+listenGame :: Handler -> Handler -> Handler -> IO ()
+listenGame gh h1 h2 = do
+  message <- hGetLine gh
