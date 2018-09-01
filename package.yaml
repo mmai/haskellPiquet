@@ -68,6 +68,16 @@ executables:
     dependencies:
     - piquet
     - network
+  piquetClient-exe:
+    main:                Main.hs
+    source-dirs:         client
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - piquet
+    - network
 
 tests:
   piquet-test:
