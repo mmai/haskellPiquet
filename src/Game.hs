@@ -18,6 +18,8 @@ import Data.List.Split (splitOn)
 import Data.Set.Ordered hiding (filter, null)
 import Data.Function
 import Data.Foldable (toList)
+import Data.Aeson hiding ((.=))
+import Data.Binary hiding (get)
 import Data.Bool
 import Data.Maybe
 import Text.Read (readMaybe)
@@ -27,16 +29,9 @@ import Control.Arrow
 import Control.Applicative
 import System.Random
 import System.IO (hGetLine, hPutStrLn, Handle, stderr, stdout)
-
-import Control.Distributed.Process
-import Data.Aeson hiding ((.=))
-import Data.Aeson.Casing
-import Data.Binary hiding (get)
--- import Data.Map.Strict (Map)
--- import qualified Data.Map.Strict as Map
-import Data.Text (Text, pack, unpack)
 import GHC.Generics
-import Network.GameEngine
+
+import Control.Distributed.Process (SendPortId)
 
 data Deal = One | Two | Three | Four | Five | Six deriving (Bounded, Eq, Enum, Show)
 
@@ -142,46 +137,6 @@ getPortIdPlayerLens :: SendPortId -> Lens' Game Player
 getPortIdPlayerLens portId f g = if g ^. player1SendPortId  == Just portId then player1 f g else player2 f g
 
 ------- 
-
---- Cloud Haskell server
-data Msg = SetCombination Hand 
-         | ChangeName Text 
-         deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
-
-data View = View { viewGame :: Step
-                 , viewPlayers :: [String]
-                 , viewSampleCommands :: [Msg]
-                 } deriving (Show, Eq, Binary, Generic)
-
-instance ToJSON View where
-  toJSON = genericToJSON $ aesonPrefix camelCase
-
-update :: EngineMsg Msg -> Game -> Game
-update msg = handleMsg msg
-
-handleMsg :: EngineMsg Msg -> Game -> Game
-handleMsg (Join playerId) g = 
-  if g ^. player1SendPortId == Nothing 
-     then g & player1SendPortId .~ Just playerId 
-     else if g ^. player2SendPortId == Nothing 
-            then g & player2SendPortId .~ Just playerId 
-            else g
-handleMsg (Leave playerId) g = 
-  if g ^. player1SendPortId  == Just playerId 
-     then g & player1SendPortId .~ Nothing
-     else if g ^. player2SendPortId  == Just playerId 
-            then g & player2SendPortId .~ Nothing
-            else g
-handleMsg (GameMsg playerId (ChangeName newName)) g =
-  set (getPortIdPlayerLens playerId . name) (unpack newName) g
-
-viewG :: Game -> View
-viewG g = View { viewGame = g ^. step
-               , viewPlayers = g ^. player1 . name : g ^. player2 . name : []
-               , viewSampleCommands = [ChangeName (pack "Kris")]
-               }
-
--- end cloud Haskell
 
 play :: StdGen -> Handle -> Handle -> IO () 
 play stdGen p1Handle p2Handle = do

@@ -2,6 +2,7 @@
 
 module Main where
 
+import qualified Server
 import qualified Game
 import qualified Network.GameEngine
 import           System.Random
@@ -11,5 +12,5 @@ main = do
   stdGen <- getStdGen
   Network.GameEngine.runGame
     (Game.mkInitialState stdGen)
-    Game.update
-    Game.viewG
+    Server.update
+    Server.viewG
