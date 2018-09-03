@@ -18,26 +18,6 @@ import Network.GameEngine
 import Game
 import Protocol
 
-data ViewGame = ViewGame { viewGame :: Step
-                 , viewSampleCommands :: [Msg]
-                 } deriving (Show, Eq, Binary, Generic)
-
-data ViewPlayer = ViewPlayer { playerName :: String 
-                             , playerSendPortId :: String
-                             } deriving (Show, Eq, Binary, Generic)
-
-instance TaggedView ViewPlayer where
-  destinationPortId = playerSendPortId
-
-type View = (ViewGame, (ViewPlayer, ViewPlayer))
--- deriving (Show, Eq, Binary, Generic)
-
-instance ToJSON ViewGame where
-  toJSON = genericToJSON $ aesonPrefix camelCase
-
-instance ToJSON ViewPlayer where
-  toJSON = genericToJSON $ aesonPrefix camelCase
-
 update :: EngineMsg Msg -> Game -> Game
 update (Join playerId) g
   | isNothing (g ^. player1SendPortId) = g & player1SendPortId .~ Just playerId
@@ -50,15 +30,15 @@ update (Leave playerId) g
 update (GameMsg playerId (ChangeName newName)) g =
   set (getPortIdPlayerLens playerId . name) (unpack newName) g
 
-viewG :: Game -> View
+viewG :: Game -> GameStateMsg
 viewG g = ( ViewGame { viewGame = g ^. step
                      , viewSampleCommands = [ChangeName (pack "Kris")]
                      }
-          , ( ViewPlayer { playerName       = g ^. player1 . name
-                         , playerSendPortId = show (g ^. player1SendPortId)
+          , [ ViewPlayer { playerName       = g ^. player1 . name
+                         , playerSendPortId = maybe "" show (g ^. player1SendPortId)
                          }
             , ViewPlayer { playerName       = g ^. player2 . name
-                         , playerSendPortId = show (g ^. player2SendPortId)
+                         , playerSendPortId = maybe "" show (g ^. player2SendPortId)
                          }
-            )
+            ]
           )

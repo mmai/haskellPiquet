@@ -5,8 +5,10 @@ import           Control.Concurrent  (forkIO)
 import           Control.Monad       (forever, unless)
 import           Control.Monad.Trans (liftIO)
 import           Network.Socket      (withSocketsDo)
-import           Data.ByteString hiding (putStrLn)
-import           Data.Text           (Text)
+import           Data.ByteString hiding (putStrLn, pack)
+import           Data.ByteString.Lazy (toStrict)
+import           Data.Text           (Text, pack)
+import           Data.Text.Encoding  (decodeUtf8)
 import qualified Data.Text           as T
 import qualified Data.Text.IO        as T
 import           Data.Aeson hiding ((.=))
@@ -32,7 +34,7 @@ app conn = do
     -- Fork a thread that writes WS data to stdout
     _ <- forkIO $ forever $ do
         msg <- WS.receiveData conn
-        liftIO $ T.putStrLn msg
+        liftIO $ T.putStrLn $ either pack displayState $ eitherDecode msg
 
     -- Read from stdin and write to WS
     let loop = do
@@ -46,6 +48,8 @@ app conn = do
 makeMsg :: Text -> Msg
 makeMsg input = ChangeName input
 
+displayState :: GameStateMsg -> Text
+displayState (game, player:_) = pack $ "Your name is " <> playerName player
 
 --------------------------------------------------------------------------------
 main :: IO ()

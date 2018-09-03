@@ -57,14 +57,18 @@ class TaggedView v where
 ------------------------------------------------------------
 runGame
   :: ( Serializable msg
-     , Serializable view
+     , Serializable gameView
+     , Serializable playerView
      , FromJSON msg
-     , ToJSON view
-     , Show view
+     , ToJSON gameView
+     , ToJSON playerView
+     , Show gameView
+     , Show playerView
      , Show state
      , Show msg
+     , TaggedView playerView
      )
-  => state -> (EngineMsg msg -> state -> state) -> (state -> view) -> IO ()
+  => state -> (EngineMsg msg -> state -> state) -> (state -> (gameView, [playerView])) -> IO ()
 runGame initialGameState update view =
   let settings = Warp.setHost "*" . Warp.setPort 8000 $ Warp.defaultSettings
   in runStdoutLoggingT $ do
@@ -83,9 +87,8 @@ runGame initialGameState update view =
            (txSubscription, rxSubscription) <- newChan
            (txGameView, rxGameView) <- newChan
            (txGameMsg, rxGameMsg) <- newChan
-           (txGamePlayerMsg, rxGamePlayerMsg) <- newChan
-           _ <- spawnLocal $ broadcaster rxGameView rxSubscription rxGamePlayerMsg 
-           _ <- spawnLocal $ gameProcess rxGameMsg txGameView txGamePlayerMsg update view initialGameState
+           _ <- spawnLocal $ broadcaster rxGameView rxSubscription 
+           _ <- spawnLocal $ gameProcess rxGameMsg txGameView update view initialGameState
            liftIO . Warp.runSettings settings $
              websocketsOr
                WS.defaultConnectionOptions
@@ -217,8 +220,8 @@ announceToPlayer connection rx disconnectHandler = handle
 -- Broadcaster
 ------------------------------------------------------------
 broadcaster
-  :: (Show view, Serializable view)
-  => ReceivePort view -> ReceivePort (PubSubMsg view) -> Process ()
+  :: (Show gameView, Serializable gameView, Show playerView, Serializable playerView, TaggedView playerView)
+  => ReceivePort (gameView, [playerView]) -> ReceivePort (PubSubMsg (gameView, [playerView])) -> Process ()
 broadcaster inboundGame subscriptionRequests = iterateM_ handle Set.empty
   where
     handle subscribers = do
@@ -233,40 +236,39 @@ broadcaster inboundGame subscriptionRequests = iterateM_ handle Set.empty
         Left (Unsub subscriber) -> do
           liftIO . putStrLn $ "B: removing: " <> show subscriber
           return (Set.delete subscriber subscribers)
+        -- Right state@(gameView, [p1View, p2View]) -> do
         Right state -> do
-          liftIO . putStrLn $
-            "B: Broadcasting: " <> show state <> " to: " <> show subscribers
+          liftIO . putStrLn $ "B: Broadcasting: " <> show state <> " to: " <> show subscribers
           -- traverse_ (`sendChan` state) $ Set.toList subscribers
-          traverse_ (sendToMatchingPort (snd state) ) $ Set.toList subscribers
+          traverse_ (sendFilteredToMatchingPort state ) $ Set.toList subscribers
           return subscribers
 
-sendToMatchingPort :: (Show playerView, Serializable playerView)
-                   => (playerView, playerView) -> SendPort playerView -> Process ()
-sendToMatchingPort (p1, p2) subscriber 
-  | destinationPortId p1 == show (sendPortId subscriber) = sendChan subscriber p1
-  | destinationPortId p2 == show (sendPortId subscriber) = sendChan subscriber p2
-  | otherwise                                           = return ()
+-- send common info + info related to the player only
+sendFilteredToMatchingPort 
+  :: (Show gameView, Serializable gameView, Show playerView, Serializable playerView, TaggedView playerView)
+  => (gameView, [playerView]) -> SendPort (gameView, [playerView]) -> Process ()
+sendFilteredToMatchingPort (common, [p1, p2]) subscriber 
+  | destinationPortId p1 == show (sendPortId subscriber) = sendChan subscriber (common, [p1])
+  | destinationPortId p2 == show (sendPortId subscriber) = sendChan subscriber (common, [p2])
+  | otherwise                                            = return ()
 
 ------------------------------------------------------------
 -- Game
 ------------------------------------------------------------
 gameProcess
-  :: (Serializable msg, Serializable view, Serializable playerView, Show msg, Show state)
+  :: (Serializable msg, Serializable view, Show msg, Show state)
   => ReceivePort (EngineMsg msg)
   -> SendPort view
-  -> SendPort playerView
   -> (EngineMsg msg -> state -> state)
   -> (state -> view)
   -> state
   -> Process ()
-gameProcess rxGameMsg txGameView txGamePlayerMsg updateFn viewFn = iterateM_ handle
+gameProcess rxGameMsg txGameView updateFn viewFn = iterateM_ handle
   where
     handle game = do
       msg <- receiveChan rxGameMsg
       liftIO . putStrLn $ "G: Heard: " <> show msg
       let newGame = updateFn msg game
-          -- (viewGame, (viewP1, viewP2)) = viewFn newGame
-          views = viewFn newGame
-      sendChan txGameView $ fst views
-      sendChan txGamePlayerMsg $ snd views
+          view = viewFn newGame
+      sendChan txGameView view
       return newGame

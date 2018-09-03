@@ -55,7 +55,7 @@ data Step = Start
           | PlayCards
           | PlayEnd
           | End
-          deriving (Enum, Show, Ord, Eq, Generic, Binary, ToJSON)
+          deriving (Enum, Show, Ord, Eq, Generic, Binary, ToJSON, FromJSON)
 
 data Player = Player { _hand :: Hand
                      , _isElder :: Bool
