@@ -24,8 +24,9 @@ data ViewGame = ViewGame { viewGame :: Step
                  -- } deriving (Show, Eq, Binary, Generic, ToJSON, FromJSON)
                  } deriving (Show, Eq, Binary, Generic)
 
-data ViewPlayer = ViewPlayer { playerName :: String 
-                             , playerSendPortId :: String
+data ViewPlayer = ViewPlayer { playerSendPortId :: String 
+                             , playerName :: String
+                             , playerHand :: Hand
                              } deriving (Show, Eq, Binary, Generic)
                              -- } deriving (Show, Eq, Binary, Generic, ToJSON, FromJSON)
 

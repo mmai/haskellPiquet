@@ -179,7 +179,7 @@ play stdGen p1Handle p2Handle = do
 playDeal :: GameAction
 playDeal = step .= Start >> start
          >>                 showDealNum
-         >> step %= succ >> deal
+         >> step %= succ >> dealA
          >>                 showGame
          >> step %= succ >> changeElderCards
          >> step %= succ >> changeYoungerCards
@@ -204,9 +204,9 @@ declarationElder ct = declareCombinationElder ct
    >> step %= succ >> setCombinationPoints Elder ct
 
 mkInitialState stdGen = Game
-  { _stdGen = stdGen
+  { _stdGen = newStdGen
   , _dealNum = One
-  , _deck = sortedDeck
+  , _deck = shuffledDeck
   , _visible = fromList []
   , _step = Start
   , _player1 = initialPlayer & name .~ "Roméo"
@@ -221,7 +221,9 @@ mkInitialState stdGen = Game
   , _setWinner = Nobody
   , _setCombination = Nothing
   }
-  where initialPlayer = Player { _hand = noCards
+  where 
+    (newStdGen, shuffledDeck) = Shuffle.shuffle sortedDeck stdGen  
+    initialPlayer = Player { _hand = noCards
                                , _isElder = False
                                , _leftUntilCarteRouge = noCards
                                , _cardPlayed = Nothing
@@ -253,8 +255,18 @@ shuffle = use deck >>= lift . Shuffle.shuffleIO >>= (deck .=)
 --   deck .= newDeck
 --   stdGen .= newStdGen
 
-deal :: GameAction
-deal = do
+deal :: Game -> Game
+deal g = 
+  let (hands, stock) = drawHands (g ^. deck) 12 2 
+   in g & player1 . hand .~ hands !! 0
+        & player1 . leftUntilCarteRouge .~ hands !! 0
+        & player2 . hand                .~ hands !! 1
+        & player2 . leftUntilCarteRouge .~ hands !! 1
+        & deck                          .~ stock
+        & step                          %~ succ
+
+dealA :: GameAction
+dealA = do
   game <- get
   let (hands, stock) = drawHands (game ^. deck) 12 2 
   player1 . hand                .= hands !! 0

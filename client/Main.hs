@@ -49,7 +49,10 @@ makeMsg :: Text -> Msg
 makeMsg input = ChangeName input
 
 displayState :: GameStateMsg -> Text
-displayState (game, player:_) = pack $ "Your name is " <> playerName player
+displayState (game, player:_) = pack infos where
+  infos =  "Game State: " <> show (viewGame game)
+        <> "\nYour name is " <> playerName player
+        <> "\nYour hand is " <> show (playerHand player)
 
 --------------------------------------------------------------------------------
 main :: IO ()
