@@ -73,7 +73,8 @@ makeLenses ''Player
 instance Show Player where
   show p = (p ^. name) ++ " : "  ++ show (p ^. dealPoints) ++ " rougeLeft=" ++ (show . size) (p ^. leftUntilCarteRouge) ++ " : "++ show (p ^. hand)
 
-data DeclarationResponse = Good | NotGood | Equals deriving (Eq, Show)
+data DeclarationResponse = Good | NotGood | Equals 
+          deriving (Eq, Show, Binary, Generic, FromJSON, ToJSON)
 
 data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 

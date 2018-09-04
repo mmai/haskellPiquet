@@ -14,7 +14,12 @@ import Network.GameEngine
 import Cards
 import Game
 
-data Msg = SetCombination Hand 
+data Msg = Exchange Hand 
+         | DeclareCarteBlanche
+         | DeclareCarteRouge
+         | DeclareCombination Hand 
+         | Respond DeclarationResponse 
+         | PlayCard Card 
          | ChangeName Text 
          deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
 
