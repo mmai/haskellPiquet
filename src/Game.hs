@@ -263,7 +263,7 @@ deal g =
         & player2 . hand                .~ hands !! 1
         & player2 . leftUntilCarteRouge .~ hands !! 1
         & deck                          .~ stock
-        & step                          %~ succ
+        & step                          .~ succ Deal
 
 dealA :: GameAction
 dealA = do

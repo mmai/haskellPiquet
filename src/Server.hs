@@ -37,11 +37,14 @@ viewG g = ( ViewGame { viewGame = g ^. step
                      }
           , [ ViewPlayer { playerName       = g ^. player1 . name
                          , playerHand       = g ^. player1 . hand
+                         , playerIsActive   = player1IsActive
                          , playerSendPortId = maybe "" show (g ^. player1SendPortId)
                          }
             , ViewPlayer { playerName       = g ^. player2 . name
                          , playerHand       = g ^. player2 . hand
+                         , playerIsActive   = not player1IsActive
                          , playerSendPortId = maybe "" show (g ^. player2SendPortId)
                          }
             ]
-          )
+          ) where
+            player1IsActive = g ^. isElderToPlay == g ^. player1 . isElder

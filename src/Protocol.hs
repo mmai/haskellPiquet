@@ -21,14 +21,13 @@ data Msg = SetCombination Hand
 
 data ViewGame = ViewGame { viewGame :: Step
                  , viewSampleCommands :: [Msg]
-                 -- } deriving (Show, Eq, Binary, Generic, ToJSON, FromJSON)
                  } deriving (Show, Eq, Binary, Generic)
 
 data ViewPlayer = ViewPlayer { playerSendPortId :: String 
                              , playerName :: String
                              , playerHand :: Hand
+                             , playerIsActive :: Bool
                              } deriving (Show, Eq, Binary, Generic)
-                             -- } deriving (Show, Eq, Binary, Generic, ToJSON, FromJSON)
 
 instance TaggedView ViewPlayer where
   destinationPortId = playerSendPortId
