@@ -51,13 +51,14 @@ makeMsg input = ChangeName input
 displayState :: GameStateMsg -> Text
 displayState (game, player:_) = pack infos where
   infos =  "Game State: " <> show (viewGame game)
-        <> "\nYour name is " <> playerName player
-        <> "\nYour hand is " <> show (playerHand player)
+        <> "\nYou play has " <> playerName player
         <> if (show (viewGame game) == "Start")
               then "\nWaiting for an opponent to connect..."
-              else if playerIsActive player 
-                      then "\nWaiting for your move... "
-                      else "\nWaiting for your opponent to play..." 
+              else 
+                "\nYour hand is " <> show (playerHand player) <>
+                if playerIsActive player 
+                        then "\nWaiting for your move... "
+                        else "\nWaiting for your opponent to play..." 
 
 --------------------------------------------------------------------------------
 main :: IO ()
