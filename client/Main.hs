@@ -4,21 +4,20 @@
 import           Control.Concurrent  (forkIO)
 import           Control.Monad       (forever, unless)
 import           Control.Monad.Trans (liftIO)
-import           Control.Applicative
 import           Network.Socket      (withSocketsDo)
-import           Data.ByteString hiding (putStrLn, pack)
+import           Data.ByteString hiding (putStrLn, pack, unpack)
 import           Data.ByteString.Lazy (toStrict)
-import           Data.Text           (Text, pack)
+import           Data.Text           (Text, pack, unpack)
 import           Data.Text.Encoding  (decodeUtf8)
 import qualified Data.Text           as T
 import qualified Data.Text.IO        as T
 import           Data.Set.Ordered
 import           Data.Aeson hiding ((.=))
 import           Data.Aeson.Text
-import           Data.Attoparsec.Text
 import qualified Network.WebSockets  as WS
 
 import Protocol
+import CmdLineParser
 import Cards
 
 --------------------------------------------------------------------
@@ -45,7 +44,7 @@ app conn = do
           line <- T.getLine
           unless (T.null line) $
             case makeMsg line of 
-              Left errMsg -> putStrLn $ "No comprendo" <> errMsg
+              Left errMsg -> putStrLn $ "No comprendo" <> errMsg 
               Right msg   -> WS.sendTextData conn ( encode msg )
           loop
 
@@ -53,59 +52,6 @@ app conn = do
     WS.sendClose conn ("Bye!" :: Text)
 
 --------------------------------------------------------------------------------
-makeMsg :: Text -> Either String Msg
-makeMsg input = parseOnly msgParser input
-
-rankParser :: Parser Rank
-rankParser = (char '7' >> return Seven)
-         <|> (char '8' >> return Eight)
-         <|> (char '9' >> return Nine)
-         <|> (string "10" >> return Ten)
-         <|> (char 'J' >> return Jack)
-         <|> (char 'Q' >> return Queen)
-         <|> (char 'K' >> return King)
-         <|> (char 'A' >> return Ace)
-
-suitParser :: Parser Suit
-suitParser = (char 'd' >> return Diamonds)
-         <|> (char 'h' >> return Hearts)
-         <|> (char 'c' >> return Clubs)
-         <|> (char 's' >> return Spades)
-
-cardParser :: Parser Card
-cardParser = do
-  rank <- rankParser
-  suit <- suitParser
-  return $ Card rank suit
-
-handParser :: Parser Hand
-handParser = do
-  char '('
-  cards <- many' $ skipMany (char ',') >> cardParser
-  char ')'
-  return $ fromList cards
-
-msgExchangeParser :: Parser Msg
-msgExchangeParser = do
-  string "e "
-  hand <- handParser
-  return $ Exchange hand
-
-msgDeclareCombinationParser :: Parser Msg
-msgDeclareCombinationParser = do
-  string "d "
-  hand <- handParser
-  return $ DeclareCombination hand
-
-msgChangeName :: Parser Msg
-msgChangeName = do
-  name <- takeText
-  return $ ChangeName name
-
-msgParser :: Parser Msg
-msgParser = msgDeclareCombinationParser
-        <|> msgExchangeParser
-        -- <|> msgChangeName
 
 displayState :: GameStateMsg -> Text
 displayState (game, player:_) = pack infos where
