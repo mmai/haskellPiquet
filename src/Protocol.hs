@@ -30,6 +30,7 @@ data ViewGame = ViewGame { viewGame :: Step
 
 data ViewPlayer = ViewPlayer { playerSendPortId :: String 
                              , playerName :: String
+                             , playerPoints :: Int
                              , playerHand :: Hand
                              , playerIsActive :: Bool
                              } deriving (Show, Eq, Binary, Generic)

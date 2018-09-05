@@ -56,7 +56,8 @@ app conn = do
 displayState :: GameStateMsg -> Text
 displayState (game, player:_) = pack infos where
   infos =  "Game State: " <> show (viewGame game)
-        <> "\nYou play has " <> playerName player
+        <> "\nYou play has " <> playerName player 
+        <> " (" <> show (playerPoints player) <> " points)"
         <> if show (viewGame game) == "Start"
               then "\nWaiting for an opponent to connect..."
               else 

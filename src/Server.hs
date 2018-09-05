@@ -22,6 +22,7 @@ update :: EngineMsg Msg -> Game -> Game
 update (Join playerId) g
   | isNothing (g ^. player1SendPortId) = g & player1SendPortId .~ Just playerId
   | isNothing (g ^. player2SendPortId) = g & player2SendPortId .~ Just playerId
+                                           & chooseElder
                                            & deal
   | otherwise                          = g
 update (Leave playerId) g
@@ -36,11 +37,13 @@ viewG g = ( ViewGame { viewGame = g ^. step
                      , viewSampleCommands = [ChangeName (pack "Kris")]
                      }
           , [ ViewPlayer { playerName       = g ^. player1 . name
+                         , playerPoints     = g ^. player1 . dealPoints
                          , playerHand       = g ^. player1 . hand
                          , playerIsActive   = player1IsActive
                          , playerSendPortId = maybe "" show (g ^. player1SendPortId)
                          }
             , ViewPlayer { playerName       = g ^. player2 . name
+                         , playerPoints     = g ^. player2 . dealPoints
                          , playerHand       = g ^. player2 . hand
                          , playerIsActive   = not player1IsActive
                          , playerSendPortId = maybe "" show (g ^. player2SendPortId)

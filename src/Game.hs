@@ -142,7 +142,7 @@ getPortIdPlayerLens portId f g = if g ^. player1SendPortId  == Just portId then 
 play :: StdGen -> Handle -> Handle -> IO () 
 play stdGen p1Handle p2Handle = do
   game <- flip execStateT (mkInitialState stdGen) $ do
-    elderIsPlayer1 <- lift (randomRIO (True, False)) 
+    elderIsPlayer1 <- lift (randomRIO (False, True)) 
     assign (player1 . isElder ) elderIsPlayer1
     assign (player2 . isElder ) (not elderIsPlayer1)
     replicateM_ 6 playDeal
@@ -178,11 +178,11 @@ play stdGen p1Handle p2Handle = do
 --     Streams.write (Just $ messageOutWithIdAndLength msg) outS
 
 playDeal :: GameAction
-playDeal = step .= Start >> start
-         >>                 showDealNum
-         >> step %= succ >> dealA
-         >>                 showGame
-         >> step %= succ >> changeElderCards
+playDeal = -- step .= Start >> start
+         -- >>                 showDealNum
+         -- >> step %= succ >> dealA
+         -- >>                 showGame
+         step %= succ >> changeElderCards
          >> step %= succ >> changeYoungerCards
          >>                 showGame
          >> step %= succ >> declarationElder Point
@@ -236,25 +236,13 @@ mkInitialState stdGen = Game
                                , _sockHandle = stderr
                                }
 
-type GameAction = StateT Game IO ()
-
-start :: GameAction
-start =  pointWinner .= Nobody
-      >> sequenceWinner .= Nobody
-      >> setWinner .= Nobody
-      >> deck .= sortedDeck
-      >> shuffle
-
-shuffle :: GameAction
-shuffle = use deck >>= lift . Shuffle.shuffleIO >>= (deck .=)
-
--- shuffle :: State Game ()
--- shuffle = do
---   iniDeck <- use deck
---   iniStdGen <- use stdGen
---   let (newStdGen, newDeck) = Shuffle.shuffle iniDeck iniStdGen
---   deck .= newDeck
---   stdGen .= newStdGen
+chooseElder :: Game -> Game
+chooseElder game = 
+  (game & player1 . isElder .~ elderIsPlayer1
+        & player2 . isElder .~ not elderIsPlayer1
+        & stdGen .~ newStdGen )
+  where 
+    (elderIsPlayer1, newStdGen) = randomR (False, True) (game ^. stdGen) 
 
 deal :: Game -> Game
 deal g = 
@@ -266,15 +254,35 @@ deal g =
         & deck                          .~ stock
         & step                          .~ succ Deal
 
-dealA :: GameAction
-dealA = do
-  game <- get
-  let (hands, stock) = drawHands (game ^. deck) 12 2 
-  player1 . hand                .= hands !! 0
-  player1 . leftUntilCarteRouge .= hands !! 0
-  player2 . hand                .= hands !! 1
-  player2 . leftUntilCarteRouge .= hands !! 1
-  deck                          .= stock
+type GameAction = StateT Game IO ()
+
+-- start :: GameAction
+-- start =  pointWinner .= Nobody
+--       >> sequenceWinner .= Nobody
+--       >> setWinner .= Nobody
+--       >> deck .= sortedDeck
+--       >> shuffle
+
+-- shuffle :: GameAction
+-- shuffle = use deck >>= lift . Shuffle.shuffleIO >>= (deck .=)
+
+-- shuffle :: State Game ()
+-- shuffle = do
+--   iniDeck <- use deck
+--   iniStdGen <- use stdGen
+--   let (newStdGen, newDeck) = Shuffle.shuffle iniDeck iniStdGen
+--   deck .= newDeck
+--   stdGen .= newStdGen
+
+-- dealA :: GameAction
+-- dealA = do
+--   game <- get
+--   let (hands, stock) = drawHands (game ^. deck) 12 2 
+--   player1 . hand                .= hands !! 0
+--   player1 . leftUntilCarteRouge .= hands !! 0
+--   player2 . hand                .= hands !! 1
+--   player2 . leftUntilCarteRouge .= hands !! 1
+--   deck                          .= stock
 
 changeElderCards :: GameAction
 changeElderCards = changePlayerCards elder
