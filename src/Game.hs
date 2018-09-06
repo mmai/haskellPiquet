@@ -57,6 +57,12 @@ data Step = Start
           | End
           deriving (Enum, Show, Ord, Eq, Generic, Binary, ToJSON, FromJSON)
 
+data Move = P1Move PlayerMove | P2Move PlayerMove 
+  deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
+
+data PlayerMove = Exchange Hand | Declaration Combination | PlayCard Card 
+  deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
+
 data Player = Player { _hand :: Hand
                      , _isElder :: Bool
                      , _leftUntilCarteRouge :: Hand
@@ -80,6 +86,7 @@ data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 
 data Game = Game { _stdGen              :: StdGen
                  , _dealNum             :: Deal
+                 , _dealMoves           :: [Move]
                  , _deck                :: Deck
                  , _visible             :: Deck
                  , _step                :: Step
@@ -207,6 +214,7 @@ declarationElder ct = declareCombinationElder ct
 mkInitialState stdGen = Game
   { _stdGen = newStdGen
   , _dealNum = One
+  , _dealMoves = []
   , _deck = shuffledDeck
   , _visible = fromList []
   , _step = Start
@@ -252,6 +260,7 @@ deal g =
         & player2 . hand                .~ hands !! 1
         & player2 . leftUntilCarteRouge .~ hands !! 1
         & deck                          .~ stock
+        & dealMoves                     .~ []
         & step                          .~ succ Deal
 
 type GameAction = StateT Game IO ()

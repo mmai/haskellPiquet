@@ -1,4 +1,6 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Combinations where
 
@@ -6,16 +8,21 @@ import Control.Arrow
 import Control.Applicative
 import Data.List
 import Data.Maybe
+import Data.Binary hiding (get, put)
+import Data.Aeson
 import Data.Set.Ordered hiding (filter, empty, null)
 import Data.Foldable (toList)
+import GHC.Generics
 
 import Cards
 
-data CombinationType = Point | Sequence | Set deriving (Show, Eq)
+data CombinationType = Point | Sequence | Set
+          deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
 
 data Combination = Combination { combinationType :: CombinationType
                                , cards :: Hand
                                } 
+          deriving (Binary, Generic, FromJSON, ToJSON)
 
 instance Show Combination where
   show c = show (combinationType c) ++ " : " ++ show (cards c)

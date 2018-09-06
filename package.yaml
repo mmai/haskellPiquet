@@ -40,8 +40,7 @@ dependencies:
 - distributed-process-supervisor
 - network-transport-inmemory
 - network-transport-tcp
-# - megaparsec
-- attoparsec
+- megaparsec
 - monad-logger
 - monad-loops
 - resourcet

@@ -4,7 +4,7 @@ module CmdLineParserTests (tests) where
 
 import Test.Hspec
 import Text.Printf (printf)
-import Data.Attoparsec.Text
+import Text.Megaparsec
 import Data.Text
 
 import TestData
@@ -16,12 +16,12 @@ import CmdLineParser
 testParseHand :: Text -> Hand -> Spec
 testParseHand input hand =
   it (printf "should parse the hand for : %s -> %s \n" input (show hand)) $
-    parseOnly handParser input `shouldBe` Right hand
+    parse handParser "" input `shouldBe` Right hand
 
 testParseMsg :: Text -> Msg -> Spec
 testParseMsg input msg =
   it (printf "should parse the msg for : %s -> %s \n" input (show msg)) $
-    parseOnly msgParser input `shouldBe` Right msg
+    parse msgParser "" input `shouldBe` Right msg
 
 tests = hspec $ do
   describe "parseHand" $ do 

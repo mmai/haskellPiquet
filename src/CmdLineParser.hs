@@ -4,14 +4,22 @@ module CmdLineParser where
 
 import Data.Set.Ordered
 import Data.Text
-import Data.Attoparsec.Text
-import Control.Applicative
+import Data.Void
+import Control.Applicative hiding (many, some)
+import Control.Arrow (left)
+import Text.Megaparsec
+import Text.Megaparsec.Expr
+import Text.Megaparsec.Char
 
 import Protocol
 import Cards
 
+-- Void : no custom error messages
+-- Text : input data type
+type Parser = Parsec Void Text
+
 makeMsg :: Text -> Either String Msg
-makeMsg input = parseOnly msgParser input
+makeMsg input = left parseErrorPretty $ parse msgParser "" input
 
 rankParser :: Parser Rank
 rankParser = (char '7' >> return Seven)
@@ -38,7 +46,7 @@ cardParser = do
 handParser :: Parser Hand
 handParser = do
   char '('
-  cards <- many' $ skipMany (char ',') >> cardParser
+  cards <- many $ skipMany (char ',') >> cardParser
   char ')'
   return $ fromList cards
 
@@ -56,7 +64,7 @@ msgDeclareCombinationParser = do
 
 msgChangeName :: Parser Msg
 msgChangeName = do
-  name <- takeText
+  name <- takeRest
   return $ ChangeName name
 
 msgParser :: Parser Msg
