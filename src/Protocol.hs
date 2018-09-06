@@ -4,15 +4,15 @@
 module Protocol where
 
 import Data.Text (Text)
-import Data.Aeson hiding ((.=))
+import Data.Aeson
 import Data.Aeson.Casing
-import Data.Binary hiding (get)
+import Data.Binary
 import GHC.Generics
 
 
 import Network.GameEngine
 import Cards
-import Game
+import PiquetTypes
 
 data Msg = Exchange Hand 
          | DeclareCarteBlanche

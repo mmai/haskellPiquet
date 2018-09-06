@@ -5,14 +5,14 @@ import           Control.Concurrent  (forkIO)
 import           Control.Monad       (forever, unless)
 import           Control.Monad.Trans (liftIO)
 import           Network.Socket      (withSocketsDo)
-import           Data.ByteString hiding (putStrLn, pack, unpack)
+import           Data.ByteString hiding (putStrLn, pack)
 import           Data.ByteString.Lazy (toStrict)
 import           Data.Text           (Text, pack, unpack)
 import           Data.Text.Encoding  (decodeUtf8)
 import qualified Data.Text           as T
 import qualified Data.Text.IO        as T
 import           Data.Set.Ordered
-import           Data.Aeson hiding ((.=))
+import           Data.Aeson 
 import           Data.Aeson.Text
 import qualified Network.WebSockets  as WS
 

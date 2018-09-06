@@ -1,22 +1,20 @@
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-
 module Server where
 
 import Control.Distributed.Process
 import Control.Lens
 import Data.Maybe
-import Data.Aeson hiding ((.=))
+import Data.Aeson
 import Data.Aeson.Casing
-import Data.Binary hiding (get)
+import Data.Binary
 -- import Data.Map.Strict (Map)
 -- import qualified Data.Map.Strict as Map
 import Data.Text (Text, pack, unpack)
 import GHC.Generics
 import Network.GameEngine
 
-import Game
+import PiquetTypes hiding (PlayerMove(..))
 import Protocol
+import Game
 
 update :: EngineMsg Msg -> Game -> Game
 update (Join playerId) g
@@ -29,8 +27,8 @@ update (Leave playerId) g
   | g ^. player1SendPortId == Just playerId = g & player1SendPortId .~ Nothing
   | g ^. player2SendPortId == Just playerId = g & player2SendPortId .~ Nothing
   | otherwise                               = g
-update (GameMsg playerId (ChangeName newName)) g =
-  set (getPortIdPlayerLens playerId . name) (unpack newName) g
+update (GameMsg playerId (Exchange hand)) g = changePlayerCards (getPortIdPlayerLens playerId) hand g
+update (GameMsg playerId (ChangeName name')) g = set (getPortIdPlayerLens playerId . name) (unpack name') g
 
 viewG :: Game -> GameStateMsg
 viewG g = ( ViewGame { viewGame = g ^. step

@@ -11,6 +11,7 @@ import Text.Megaparsec
 import Text.Megaparsec.Expr
 import Text.Megaparsec.Char
 
+import PiquetTypes hiding (PlayerMove(..))
 import Protocol
 import Cards
 
@@ -26,16 +27,16 @@ rankParser = (char '7' >> return Seven)
          <|> (char '8' >> return Eight)
          <|> (char '9' >> return Nine)
          <|> (string "10" >> return Ten)
-         <|> (char 'J' >> return Jack)
-         <|> (char 'Q' >> return Queen)
-         <|> (char 'K' >> return King)
-         <|> (char 'A' >> return Ace)
+         <|> (char' 'J' >> return Jack) -- char' = case insensitive
+         <|> (char' 'Q' >> return Queen)
+         <|> (char' 'K' >> return King)
+         <|> (char' 'A' >> return Ace)
 
 suitParser :: Parser Suit
-suitParser = (char 'd' >> return Diamonds)
-         <|> (char 'h' >> return Hearts)
-         <|> (char 'c' >> return Clubs)
-         <|> (char 's' >> return Spades)
+suitParser = (char' 'd' >> return Diamonds)
+         <|> (char' 'h' >> return Hearts)
+         <|> (char' 'c' >> return Clubs)
+         <|> (char' 's' >> return Spades)
 
 cardParser :: Parser Card
 cardParser = do
@@ -51,23 +52,34 @@ handParser = do
   return $ fromList cards
 
 msgExchangeParser :: Parser Msg
-msgExchangeParser = do
-  string "e "
-  hand <- handParser
-  return $ Exchange hand
+msgExchangeParser = string "e " >> (Exchange <$> handParser)
 
 msgDeclareCombinationParser :: Parser Msg
-msgDeclareCombinationParser = do
-  string "d "
-  hand <- handParser
-  return $ DeclareCombination hand
+msgDeclareCombinationParser = string "d " >> (DeclareCombination <$> handParser)
+
+msgDeclareCarteBlancheParser :: Parser Msg
+msgDeclareCarteBlancheParser = string "d cb" >> return DeclareCarteBlanche
+
+msgDeclareCarteRougeParser :: Parser Msg
+msgDeclareCarteRougeParser = string "d cr" >> return DeclareCarteRouge
+
+msgDeclarationResponseParser :: Parser Msg
+msgDeclarationResponseParser = 
+      (string "r good"     >> (return $ Respond Good))
+  <|> (string "r not good" >> (return $ Respond NotGood))
+  <|> (string "r equals"   >> (return $ Respond Equals))
+
+msgPlayCardParser :: Parser Msg
+msgPlayCardParser = string "p " >> PlayCard <$> cardParser
 
 msgChangeName :: Parser Msg
-msgChangeName = do
-  name <- takeRest
-  return $ ChangeName name
+msgChangeName = ChangeName <$> takeRest
 
 msgParser :: Parser Msg
-msgParser = msgDeclareCombinationParser
+msgParser = msgDeclareCarteBlancheParser
         <|> msgExchangeParser
+        <|> msgDeclareCombinationParser
+        <|> msgDeclarationResponseParser
+        <|> msgDeclareCarteRougeParser
+        <|> msgPlayCardParser
         -- <|> msgChangeName
