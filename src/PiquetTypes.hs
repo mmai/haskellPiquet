@@ -42,8 +42,13 @@ data Step = Start
 data Move = P1Move PlayerMove | P2Move PlayerMove 
   deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
 
-data PlayerMove = Exchange Hand | Declaration Combination | PlayCard Card 
+data PlayerMove = CarteBlanche 
+                | Exchange Hand 
+                | Declaration Combination 
+                | PlayCard Card 
   deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
+
+data PiqueEvent = Pique | Repique
 
 data Player = Player { _hand :: Hand
                      , _isElder :: Bool

@@ -16,7 +16,7 @@ import GHC.Generics
 
 import Cards
 
-data CombinationType = Point | Sequence | Set
+data CombinationType = Point | Sequence | Set 
           deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
 
 data Combination = Combination { combinationType :: CombinationType

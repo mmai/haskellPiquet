@@ -17,6 +17,7 @@ import Protocol
 import Game
 
 update :: EngineMsg Msg -> Game -> Game
+update (GameMsg playerId msg) g = handlePlayerMsg msg playerId g
 update (Join playerId) g
   | isNothing (g ^. player1SendPortId) = g & player1SendPortId .~ Just playerId
   | isNothing (g ^. player2SendPortId) = g & player2SendPortId .~ Just playerId
@@ -27,8 +28,11 @@ update (Leave playerId) g
   | g ^. player1SendPortId == Just playerId = g & player1SendPortId .~ Nothing
   | g ^. player2SendPortId == Just playerId = g & player2SendPortId .~ Nothing
   | otherwise                               = g
-update (GameMsg playerId (Exchange hand)) g = changePlayerCards (getPortIdPlayerLens playerId) hand g
-update (GameMsg playerId (ChangeName name')) g = set (getPortIdPlayerLens playerId . name) (unpack name') g
+
+handlePlayerMsg :: Msg -> SendPortId -> Game -> Game
+handlePlayerMsg DeclareCarteBlanche spid = checkCarteBlanche (getPortIdPlayerLens spid)
+handlePlayerMsg (Exchange hand)     spid = changePlayerCards hand (getPortIdPlayerLens spid)
+handlePlayerMsg (ChangeName name')  spid = (getPortIdPlayerLens spid . name) .~ (unpack name')
 
 viewG :: Game -> GameStateMsg
 viewG g = ( ViewGame { viewGame = g ^. step

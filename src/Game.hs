@@ -31,7 +31,8 @@ import GHC.Generics
 
 import Control.Distributed.Process (SendPortId)
 
--- Additional Lenses accessors
+---------------- Additional Lenses accessors
+
 elder :: Lens' Game Player
 elder f g = if g ^. player1 . isElder then player1 f g else player2 f g
 
@@ -60,7 +61,7 @@ getWinnerLens Set      = setWinner
 getPortIdPlayerLens :: SendPortId -> Lens' Game Player
 getPortIdPlayerLens portId f g = if g ^. player1SendPortId  == Just portId then player1 f g else player2 f g
 
-------- 
+----------------------------------------------------------------------- 
 
 play :: StdGen -> Handle -> Handle -> IO () 
 play stdGen p1Handle p2Handle = do
@@ -215,13 +216,22 @@ changeElderCards = changePlayerCardsAction elder
 changeYoungerCards :: GameAction
 changeYoungerCards = changePlayerCardsAction younger
 
-changePlayerCards :: Lens' Game Player -> Hand -> Game -> Game
-changePlayerCards playerLens toChange game = 
+changePlayerCards :: Hand -> Lens' Game Player -> Game -> Game
+changePlayerCards toChange playerLens game = 
   game & deck                             .~ newDeck
        & playerLens . hand                .~ newHand
        & playerLens . leftUntilCarteRouge .~ newHand
   where pHand = game ^. playerLens . hand 
         (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
+
+checkCarteBlanche :: Lens' Game Player -> Game -> Game
+checkCarteBlanche playerLens game = newGame where
+  (pique, newGame) =  if canDeclareCarteBlanche game && isCarteBlanche pHand
+                         then addDealPoints playerLens 10 game
+                         else (Nothing, game)
+
+canDeclareCarteBlanche :: Game -> Bool
+canDeclareCarteBlanche game = not $ P1Move CarteBlanche `elem` game ^. dealMoves
 
 changePlayerCardsAction :: Lens' Game Player -> GameAction
 changePlayerCardsAction playerLens = do
@@ -250,7 +260,7 @@ declareCarteBlanche playerLens = do
   resp <- lift (hGetLine pSock)
   when (resp == "y") $ do
     display $ "[] Carte Blanche : " ++ show pHand
-    addDealPoints playerLens 10
+    addDealPointsAction playerLens 10
 
 declareCombinationElder :: CombinationType -> GameAction
 declareCombinationElder combinationType = do
@@ -293,15 +303,26 @@ checkCarteRouge playerLens maybeCombination = do
     lift $ hPutStrLn pSock $ "left until Carte rouge :" ++ show leftAfterCombination
     when (size leftAfterCombination == 0 ) $ do
       display "[] Carte rouge -> +20"
-      addDealPoints playerLens 20
+      addDealPointsAction playerLens 20
 
-addDealPoints :: Lens' Game Player -> Int -> GameAction
-addDealPoints playerLens points = do
-  playerLens . dealPoints %= (+ points)
-  game <- get
-  gameStep <- use step 
-  pointsBefore <- use (playerLens . dealPoints) 
+addDealPoints :: Lens' Game Player -> Int -> Game -> (Maybe PiqueEvent, Game)
+addDealPoints playerLens points game = (pique, g & playerLens . dealPoints .~ (pointsBefore + points + bonus) ) where
+  gameStep       = game ^. step
+  pointsBefore   = game ^. (playerLens . dealPoints) 
+  opponentPoints = game ^. (getOpponentLens playerLens . dealPoints)
+  (bonus, pique)
+      | (pointsBefore + points) >= 30 || 30 > pointsBefore = (Nothing, 0) -- not over 30, or not the first time
+      | (gameStep < PlayCards && opponentPoints <= 1)      = (Just Repique, 60) 
+      | (gameStep >= PlayCards && opponentPoints == 0)     = (Just Pique, 30) 
+      | otherwise                                          = (Nothing, 0)
+
+addDealPointsAction :: Lens' Game Player -> Int -> GameAction
+addDealPointsAction playerLens points = do
+  game           <- get
+  gameStep       <- use step 
   opponentPoints <- use (getOpponentLens playerLens . dealPoints)
+  pointsBefore   <- use (playerLens . dealPoints) 
+  playerLens . dealPoints %= (+ points)
   when (pointsBefore < 30 && 30 <= (pointsBefore + points)) $  -- first time player go over 30 points
     if gameStep < PlayCards
        then when (opponentPoints <= 1) $ do
@@ -323,8 +344,8 @@ checkPlayPoints = do
       if (min won1 won2 == 0) 
          then winnerLens . dealPoints %= (+40) -- Capot, do not count for pique
          else 
-           addDealPoints (if won1 > won2 then player1 else player2) 10
-           -- addDealPoints winnerLens 10
+           addDealPointsAction (if won1 > won2 then player1 else player2) 10
+           -- addDealPointsAction winnerLens 10
 
 setCombinationPoints :: DeclarationWinner -> CombinationType -> GameAction
 setCombinationPoints decPlayer combinationType = do
@@ -333,7 +354,7 @@ setCombinationPoints decPlayer combinationType = do
     -- add points for winning combination
     let winnerLens dc = bool younger elder (dc == Elder)
     maybeWinComb <- use (getCombinationLens combinationType)
-    addDealPoints (winnerLens decPlayer) ( maybe 0 getCombinationPoints maybeWinComb )
+    addDealPointsAction (winnerLens decPlayer) ( maybe 0 getCombinationPoints maybeWinComb )
     checkCarteRouge (winnerLens decPlayer) maybeWinComb 
     unless (combinationType == Point) $ do
       -- ask for other smaller combinations of the same type
@@ -344,7 +365,7 @@ setCombinationPoints decPlayer combinationType = do
         strOthers <- lift $ liftM (filter (/= '\r')) $ hGetLine winnerSock
         let others = (candidates !!) . read <$> splitOn "," strOthers
         sequence_ $ (display . (("[" ++ show decPlayer ++ "] ") ++) . showDeclarationComplete) <$> others -- show combination
-        sequence_ $ (addDealPoints (winnerLens decPlayer) . getCombinationPoints) <$> others  -- add points 
+        sequence_ $ (addDealPointsAction (winnerLens decPlayer) . getCombinationPoints) <$> others  -- add points 
         sequence_ $ checkCarteRouge (winnerLens decPlayer) . Just <$> others 
 
 setCombinationElderPoints :: CombinationType -> GameAction
@@ -354,7 +375,7 @@ setCombinationElderPoints combinationType = do
   when (game ^. getWinnerLens combinationType == Elder) $ do
     -- add points for winning combination
     maybeWinComb <- use (getCombinationLens combinationType)
-    addDealPoints elder ( maybe 0 getCombinationPoints maybeWinComb )
+    addDealPointsAction elder ( maybe 0 getCombinationPoints maybeWinComb )
     checkCarteRouge elder maybeWinComb 
     -- ask for other smaller combinations of the same type
     let candidates = getSmallerCombinations maybeWinComb . getCombinations combinationType $ game ^. elder . hand
@@ -363,7 +384,7 @@ setCombinationElderPoints combinationType = do
       strOthers <- lift getLine
       let others = (candidates !!) . read <$> splitOn "," strOthers
       sequence_ $ (display . ("[Elder] " ++) . showDeclarationComplete) <$> others -- show combination
-      sequence_ $ (addDealPoints elder . getCombinationPoints) <$> others  -- add points 
+      sequence_ $ (addDealPointsAction elder . getCombinationPoints) <$> others  -- add points 
       sequence_ $ checkCarteRouge elder . Just <$> others 
 
 getResponseChoices :: Maybe Combination -> [Combination] -> [(DeclarationResponse, Maybe Combination)]
@@ -430,14 +451,14 @@ playCard card = do
     case (game ^. inactivePlayer . cardPlayed) of
       Nothing -> do -- First to play in the turn
         activePlayer . cardPlayed .= Just card
-        addDealPoints activePlayer 1
+        addDealPointsAction activePlayer 1
         isElderToPlay %= not
       Just opponentCard -> do -- Second to play in the turn
         let activePlayerWon = (suit card == suit opponentCard && rank card > rank opponentCard)
-        when activePlayerWon $ addDealPoints activePlayer 1 
+        when activePlayerWon $ addDealPointsAction activePlayer 1 
         if activePlayerWon then finishTurn activePlayer inactivePlayer else finishTurn inactivePlayer activePlayer 
         when (length (game ^. activePlayer . hand) == 0) $ do -- this is the last turn 
-           addDealPoints (if activePlayerWon then activePlayer else inactivePlayer) 1 -- an additional point for the winner
+           addDealPointsAction (if activePlayerWon then activePlayer else inactivePlayer) 1 -- an additional point for the winner
            step .= PlayEnd
         activePlayer   . cardPlayed .= Nothing
         inactivePlayer . cardPlayed .= Nothing
