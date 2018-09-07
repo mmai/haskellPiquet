@@ -31,7 +31,7 @@ import GHC.Generics
 
 import Control.Distributed.Process (SendPortId)
 
----------------- Additional Lenses accessors
+---------------- Additional Lenses accessors & related functions
 
 elder :: Lens' Game Player
 elder f g = if g ^. player1 . isElder then player1 f g else player2 f g
@@ -60,6 +60,9 @@ getWinnerLens Set      = setWinner
 
 getPortIdPlayerLens :: SendPortId -> Lens' Game Player
 getPortIdPlayerLens portId f g = if g ^. player1SendPortId  == Just portId then player1 f g else player2 f g
+
+isPlayerToPlay ::  Lens' Game Player -> Game -> Bool
+isPlayerToPlay playerLens game = game ^. isElderToPlay == game ^. playerLens . isElder 
 
 ----------------------------------------------------------------------- 
 
@@ -106,10 +109,10 @@ playDeal = -- step .= Start >> start
          -- >>                 showDealNum
          -- >> step %= succ >> dealA
          -- >>                 showGame
-         step %= succ >> changeElderCards
-         >> step %= succ >> changeYoungerCards
-         >>                 showGame
-         >> step %= succ >> declarationElder Point
+         -- >> step %= succ >> changeElderCards
+         -- >> step %= succ >> changeYoungerCards
+         -- >>                 showGame
+          step %= succ >> declarationElder Point
          >> step %= succ >> declarationElder Sequence
          >> step %= succ >> declarationElder Set
          >> step %= succ >> playFirstCard -- elder play first card before younger declarations
@@ -210,57 +213,64 @@ type GameAction = StateT Game IO ()
 --   player2 . leftUntilCarteRouge .= hands !! 1
 --   deck                          .= stock
 
-changeElderCards :: GameAction
-changeElderCards = changePlayerCardsAction elder
+-- changeElderCards :: GameAction
+-- changeElderCards = changePlayerCardsAction elder
+--
+-- changeYoungerCards :: GameAction
+-- changeYoungerCards = changePlayerCardsAction younger
 
-changeYoungerCards :: GameAction
-changeYoungerCards = changePlayerCardsAction younger
+playerMove :: Lens' Game Player -> Game -> PlayerMove -> Move
+playerMove playerLens game = bool P2Move P1Move $ game ^. player1 . isElder == game ^. playerLens . isElder
+
+checkCarteBlanche :: Lens' Game Player -> Game -> Game
+checkCarteBlanche playerLens game = (newGame & dealMoves %~ (moveCarteBlanche:)) where
+  moveCarteBlanche = playerMove playerLens game CarteBlanche
+  (pique, newGame) =  if moveCarteBlanche `notElem` game ^. dealMoves && isCarteBlanche (game ^. playerLens . hand)
+                         then (addDealPoints playerLens 10 game) 
+                         else (Nothing, game)
 
 changePlayerCards :: Hand -> Lens' Game Player -> Game -> Game
 changePlayerCards toChange playerLens game = 
-  game & deck                             .~ newDeck
-       & playerLens . hand                .~ newHand
-       & playerLens . leftUntilCarteRouge .~ newHand
-  where pHand = game ^. playerLens . hand 
-        (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
+  if not (isPlayerToPlay playerLens game && game ^. step <= ExchangeYounger) 
+     then game
+     else game & deck                             .~ newDeck
+               & playerLens . hand                .~ newHand
+               & playerLens . leftUntilCarteRouge .~ newHand
+               & dealMoves                        %~ (moveChange:)
+               & isElderToPlay                    %~ not
+               & step                             %~ succ
+          where pHand = game ^. playerLens . hand 
+                (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
+                moveChange = playerMove playerLens game (Exchange toChange)
 
-checkCarteBlanche :: Lens' Game Player -> Game -> Game
-checkCarteBlanche playerLens game = newGame where
-  (pique, newGame) =  if canDeclareCarteBlanche game && isCarteBlanche pHand
-                         then addDealPoints playerLens 10 game
-                         else (Nothing, game)
+-- changePlayerCardsAction :: Lens' Game Player -> GameAction
+-- changePlayerCardsAction playerLens = do
+--   game <- get
+--   let pHand = game ^. playerLens . hand 
+--       pSock = game ^. playerLens . sockHandle
+--   lift $ hPutStrLn pSock $ (game ^. playerLens . name) ++ ", this is your hand : " ++ show pHand
+--   when (isCarteBlanche pHand) $ declareCarteBlanche playerLens 
+--   lift $ hPutStrLn pSock "Change cards : "
+--   stToChange <- lift ( liftM (filter (/= '\r')) $ hGetLine pSock) 
+--   unless (null stToChange) $ do
+--     let idxToChange        = read <$> splitOn "," stToChange                  
+--         toChange           = fromList $ getCardsAtPos pHand idxToChange     
+--         (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
+--     deck                             .= newDeck
+--     playerLens . hand                .= newHand
+--     playerLens . leftUntilCarteRouge .= newHand
+--     lift $ hPutStrLn pSock $ "Your new hand : " ++ show newHand
 
-canDeclareCarteBlanche :: Game -> Bool
-canDeclareCarteBlanche game = not $ P1Move CarteBlanche `elem` game ^. dealMoves
-
-changePlayerCardsAction :: Lens' Game Player -> GameAction
-changePlayerCardsAction playerLens = do
-  game <- get
-  let pHand = game ^. playerLens . hand 
-      pSock = game ^. playerLens . sockHandle
-  lift $ hPutStrLn pSock $ (game ^. playerLens . name) ++ ", this is your hand : " ++ show pHand
-  when (isCarteBlanche pHand) $ declareCarteBlanche playerLens 
-  lift $ hPutStrLn pSock "Change cards : "
-  stToChange <- lift ( liftM (filter (/= '\r')) $ hGetLine pSock) 
-  unless (null stToChange) $ do
-    let idxToChange        = read <$> splitOn "," stToChange                  
-        toChange           = fromList $ getCardsAtPos pHand idxToChange     
-        (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
-    deck                             .= newDeck
-    playerLens . hand                .= newHand
-    playerLens . leftUntilCarteRouge .= newHand
-    lift $ hPutStrLn pSock $ "Your new hand : " ++ show newHand
-
-declareCarteBlanche :: Lens' Game Player -> GameAction 
-declareCarteBlanche playerLens = do
-  game <- get
-  let pHand = game ^. playerLens . hand 
-      pSock = game ^. playerLens . sockHandle
-  lift $ hPutStrLn pSock "Declare carte blanche (y/n) ?"
-  resp <- lift (hGetLine pSock)
-  when (resp == "y") $ do
-    display $ "[] Carte Blanche : " ++ show pHand
-    addDealPointsAction playerLens 10
+-- declareCarteBlanche :: Lens' Game Player -> GameAction 
+-- declareCarteBlanche playerLens = do
+--   game <- get
+--   let pHand = game ^. playerLens . hand 
+--       pSock = game ^. playerLens . sockHandle
+--   lift $ hPutStrLn pSock "Declare carte blanche (y/n) ?"
+--   resp <- lift (hGetLine pSock)
+--   when (resp == "y") $ do
+--     display $ "[] Carte Blanche : " ++ show pHand
+--     addDealPointsAction playerLens 10
 
 declareCombinationElder :: CombinationType -> GameAction
 declareCombinationElder combinationType = do
@@ -306,11 +316,11 @@ checkCarteRouge playerLens maybeCombination = do
       addDealPointsAction playerLens 20
 
 addDealPoints :: Lens' Game Player -> Int -> Game -> (Maybe PiqueEvent, Game)
-addDealPoints playerLens points game = (pique, g & playerLens . dealPoints .~ (pointsBefore + points + bonus) ) where
+addDealPoints playerLens points game = (pique, game & playerLens . dealPoints .~ (pointsBefore + points + bonus) ) where
   gameStep       = game ^. step
   pointsBefore   = game ^. (playerLens . dealPoints) 
   opponentPoints = game ^. (getOpponentLens playerLens . dealPoints)
-  (bonus, pique)
+  (pique, bonus)
       | (pointsBefore + points) >= 30 || 30 > pointsBefore = (Nothing, 0) -- not over 30, or not the first time
       | (gameStep < PlayCards && opponentPoints <= 1)      = (Just Repique, 60) 
       | (gameStep >= PlayCards && opponentPoints == 0)     = (Just Pique, 30) 
