@@ -16,7 +16,7 @@ import PiquetTypes hiding (PlayerMove(..))
 import Protocol
 import Game
 
-update :: EngineMsg Msg -> Game -> Game
+update :: EngineMsg Msg -> Game -> Either Text Game
 update (GameMsg playerId msg) g = handlePlayerMsg msg playerId g
 update (Join playerId) g
   | isNothing (g ^. player1SendPortId) = g & player1SendPortId .~ Just playerId
@@ -29,7 +29,7 @@ update (Leave playerId) g
   | g ^. player2SendPortId == Just playerId = g & player2SendPortId .~ Nothing
   | otherwise                               = g
 
-handlePlayerMsg :: Msg -> SendPortId -> Game -> Game
+handlePlayerMsg :: Msg -> SendPortId -> Game -> Either Text Game
 handlePlayerMsg DeclareCarteBlanche spid = checkCarteBlanche (getPortIdPlayerLens spid)
 handlePlayerMsg (Exchange hand)     spid = changePlayerCards hand (getPortIdPlayerLens spid)
 handlePlayerMsg (ChangeName name')  spid = (getPortIdPlayerLens spid . name) .~ (unpack name')
