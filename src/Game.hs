@@ -222,13 +222,20 @@ type GameAction = StateT Game IO ()
 playerMove :: Lens' Game Player -> Game -> PlayerMove -> Move
 playerMove playerLens game = bool P2Move P1Move $ game ^. player1 . isElder == game ^. playerLens . isElder
 
-checkCarteBlanche :: Lens' Game Player -> Game -> Game
-checkCarteBlanche playerLens game = (newGame & dealMoves %~ (moveCarteBlanche:)) where
-  moveCarteBlanche = playerMove playerLens game CarteBlanche
-  (pique, newGame) =  if moveCarteBlanche `notElem` game ^. dealMoves && isCarteBlanche (game ^. playerLens . hand)
-                         then (addDealPoints playerLens 10 game) 
-                         else (Nothing, game)
-
+checkCarteBlanche :: Lens' Game Player -> Game -> Either PiquetError Game
+checkCarteBlanche playerLens game = 
+   let moveCarteBlanche = playerMove playerLens game CarteBlanche
+       piquetError
+         | moveCarteBlanche `elem` (game ^. dealMoves) = Just NotYourTurnError 
+         | not (isCarteBlanche (game ^. playerLens . hand)) = Just InvalidCombination 
+         | otherwise = Nothing
+       (pique, newGame) = if isJust piquetError
+                             then (Nothing, game)
+                             else addDealPoints playerLens 10 game
+   in if isJust piquetError 
+         then Left (fromMaybe UnknownCommand piquetError)
+         else Right (newGame & dealMoves %~ (moveCarteBlanche:))
+  
 changePlayerCards :: Hand -> Lens' Game Player -> Game -> Game
 changePlayerCards toChange playerLens game = 
   if not (isPlayerToPlay playerLens game && game ^. step <= ExchangeYounger) 

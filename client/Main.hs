@@ -54,7 +54,8 @@ app conn = do
 --------------------------------------------------------------------------------
 
 displayState :: GameStateMsg -> Text
-displayState (game, player:_) = pack infos where
+displayState (Left e) = pack $ show e
+displayState (Right (game, player:_)) = pack infos where
   infos =  "Game State: " <> show (viewGame game)
         <> "\nYou play has " <> playerName player 
         <> " (" <> show (playerPoints player) <> " points)"

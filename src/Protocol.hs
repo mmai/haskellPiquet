@@ -7,6 +7,7 @@ import Data.Text (Text)
 import Data.Aeson
 import Data.Aeson.Casing
 import Data.Binary
+import Control.Distributed.Process (SendPortId)
 import GHC.Generics
 
 
@@ -52,4 +53,5 @@ instance ToJSON ViewPlayer where
 instance FromJSON ViewPlayer where
   parseJSON = genericParseJSON $ aesonPrefix camelCase
 
-type GameStateMsg = (ViewGame, [ViewPlayer])
+type GameStateMsg = Either (PiquetError, String) (ViewGame, [ViewPlayer])
+-- type GameStateMsg = Either (PiquetError, SendPortId) (ViewGame, [ViewPlayer])

@@ -50,6 +50,15 @@ data PlayerMove = CarteBlanche
 
 data PiqueEvent = Pique | Repique
 
+data PiquetError = NotYourTurnError 
+                 | InvalidForStepError Step 
+                 | InvalidCombination
+                 | AlreadyConnectedError
+                 | NotConnectedError
+                 | UnknownCommand
+         deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
+
+
 data Player = Player { _hand :: Hand
                      , _isElder :: Bool
                      , _leftUntilCarteRouge :: Hand

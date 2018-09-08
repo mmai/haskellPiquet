@@ -22,6 +22,7 @@ import           Control.Monad.Trans.Resource             (MonadResource,
 import           Data.Aeson                               (FromJSON, ToJSON)
 import qualified Data.Aeson                               as Aeson
 import           Data.Binary
+import           Data.Either
 import           Data.Foldable
 import           Data.Monoid
 import qualified Data.Set                                 as Set
@@ -43,6 +44,9 @@ data EngineMsg msg = Join SendPortId
 data PubSubMsg view = Sub (SendPort view)
                     | Unsub (SendPort view)
                     deriving (Show, Eq, Binary, Generic)
+
+type SocketMsgView err gameView playerView = (Either (err, String) (gameView, [playerView]))
+type SocketMsgGame err state = (Either (err, String) state)
 
 timeBetweenPlayerCommands :: NominalDiffTime
 timeBetweenPlayerCommands = 0.1
@@ -66,9 +70,16 @@ runGame
      , Show playerView
      , Show state
      , Show msg
+     , Show err
+     , Binary err
+     , ToJSON err
+     , Serializable err
      , TaggedView playerView
      )
-  => state -> (EngineMsg msg -> state -> state) -> (state -> (gameView, [playerView])) -> IO ()
+  => state 
+  -> ( EngineMsg msg -> state -> SocketMsgGame err state ) 
+  -> ( SocketMsgGame err state -> SocketMsgView err gameView playerView ) 
+  -> IO ()
 runGame initialGameState update view =
   let settings = Warp.setHost "*" . Warp.setPort 8000 $ Warp.defaultSettings
   in runStdoutLoggingT $ do
@@ -220,8 +231,8 @@ announceToPlayer connection rx disconnectHandler = handle
 -- Broadcaster
 ------------------------------------------------------------
 broadcaster
-  :: (Show gameView, Serializable gameView, Show playerView, Serializable playerView, TaggedView playerView)
-  => ReceivePort (gameView, [playerView]) -> ReceivePort (PubSubMsg (gameView, [playerView])) -> Process ()
+  :: (Show err, Serializable err, Show gameView, Serializable gameView, Show playerView, Serializable playerView, TaggedView playerView)
+  => ReceivePort (SocketMsgView err gameView playerView) -> ReceivePort (PubSubMsg (SocketMsgView err gameView playerView)) -> Process ()
 broadcaster inboundGame subscriptionRequests = iterateM_ handle Set.empty
   where
     handle subscribers = do
@@ -237,19 +248,31 @@ broadcaster inboundGame subscriptionRequests = iterateM_ handle Set.empty
           liftIO . putStrLn $ "B: removing: " <> show subscriber
           return (Set.delete subscriber subscribers)
         -- Right state@(gameView, [p1View, p2View]) -> do
-        Right state -> do
+        Right (Left e) -> do
+          liftIO . putStrLn $ "B: error: " <> show e
+          traverse_ (sendErrorToMatchingPort e ) $ Set.toList subscribers
+          return subscribers
+        Right (Right state) -> do
           liftIO . putStrLn $ "B: Broadcasting: " <> show state <> " to: " <> show subscribers
           -- traverse_ (`sendChan` state) $ Set.toList subscribers
           traverse_ (sendFilteredToMatchingPort state ) $ Set.toList subscribers
           return subscribers
 
+sendErrorToMatchingPort 
+  :: (Show err, Serializable err, Show gameView, Serializable gameView, Show playerView, Serializable playerView, TaggedView playerView)
+  => (err, String) -> SendPort (SocketMsgView err gameView playerView) -> Process ()
+sendErrorToMatchingPort (e, portId) subscriber
+  | portId == show (sendPortId subscriber) = sendChan subscriber (Left (e, portId))
+  | otherwise                              = return ()
+
+
 -- send common info + info related to the player only
 sendFilteredToMatchingPort 
-  :: (Show gameView, Serializable gameView, Show playerView, Serializable playerView, TaggedView playerView)
-  => (gameView, [playerView]) -> SendPort (gameView, [playerView]) -> Process ()
+  :: (Show err, Serializable err, Show gameView, Serializable gameView, Show playerView, Serializable playerView, TaggedView playerView)
+  => (gameView, [playerView]) -> SendPort (SocketMsgView err gameView playerView) -> Process ()
 sendFilteredToMatchingPort (common, [p1, p2]) subscriber 
-  | destinationPortId p1 == show (sendPortId subscriber) = sendChan subscriber (common, [p1])
-  | destinationPortId p2 == show (sendPortId subscriber) = sendChan subscriber (common, [p2])
+  | destinationPortId p1 == show (sendPortId subscriber) = sendChan subscriber $ Right (common, [p1])
+  | destinationPortId p2 == show (sendPortId subscriber) = sendChan subscriber $ Right (common, [p2])
   | otherwise                                            = return ()
 
 ------------------------------------------------------------
@@ -259,8 +282,8 @@ gameProcess
   :: (Serializable msg, Serializable view, Show msg, Show state)
   => ReceivePort (EngineMsg msg)
   -> SendPort view
-  -> (EngineMsg msg -> state -> state)
-  -> (state -> view)
+  -> (EngineMsg msg -> state -> SocketMsgGame err state) -- updateFn
+  -> (SocketMsgGame err state -> view)                   -- viewFn
   -> state
   -> Process ()
 gameProcess rxGameMsg txGameView updateFn viewFn = iterateM_ handle
@@ -268,7 +291,7 @@ gameProcess rxGameMsg txGameView updateFn viewFn = iterateM_ handle
     handle game = do
       msg <- receiveChan rxGameMsg
       liftIO . putStrLn $ "G: Heard: " <> show msg
-      let newGame = updateFn msg game
-          view = viewFn newGame
-      sendChan txGameView view
+      let msgRes  = updateFn msg game
+          newGame = fromRight game msgRes 
+      sendChan txGameView (viewFn msgRes)
       return newGame
