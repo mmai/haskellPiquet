@@ -43,12 +43,32 @@ data Move = P1Move PlayerMove | P2Move PlayerMove
   deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
 
 data PlayerMove = CarteBlanche 
+                | CarteRouge   
+                | Pique        
+                | Repique      
+                | WinCards     
+                | Capot        
+                | PlayFirst Card 
+                | WinAsSecond  
+                | WinLastTrick 
                 | Exchange Hand 
                 | Declaration Combination 
                 | PlayCard Card 
   deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
 
-data PiqueEvent = Pique | Repique
+movePoints :: PlayerMove -> Int
+movePoints move = case move of
+                    CarteBlanche     -> 10
+                    CarteRouge       -> 20
+                    Pique            -> 30
+                    Repique          -> 60
+                    WinCards         -> 10
+                    Capot            -> 40
+                    PlayFirst _      -> 1
+                    WinAsSecond      -> 1
+                    WinLastTrick     -> 1
+                    Declaration comb -> getCombinationPoints comb
+                    _                -> 0
 
 data PiquetError = NotYourTurnError 
                  | InvalidForStepError Step 
@@ -82,7 +102,7 @@ data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 
 data Game = Game { _stdGen              :: StdGen
                  , _dealNum             :: Deal
-                 , _dealMoves           :: [Move]
+                 , _dealMoves           :: [(Move, Int)]
                  , _deck                :: Deck
                  , _visible             :: Deck
                  , _step                :: Step

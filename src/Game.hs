@@ -166,9 +166,9 @@ mkInitialState stdGen = Game
 
 chooseElder :: Game -> Game
 chooseElder game = 
-  (game & player1 . isElder .~ elderIsPlayer1
-        & player2 . isElder .~ not elderIsPlayer1
-        & stdGen .~ newStdGen )
+  game & player1 . isElder .~ elderIsPlayer1
+       & player2 . isElder .~ not elderIsPlayer1
+       & stdGen .~ newStdGen
   where 
     (elderIsPlayer1, newStdGen) = randomR (False, True) (game ^. stdGen) 
 
@@ -219,22 +219,20 @@ type GameAction = StateT Game IO ()
 -- changeYoungerCards :: GameAction
 -- changeYoungerCards = changePlayerCardsAction younger
 
-playerMove :: Lens' Game Player -> Game -> PlayerMove -> Move
-playerMove playerLens game = bool P2Move P1Move $ game ^. player1 . isElder == game ^. playerLens . isElder
+moveByPlayer :: Lens' Game Player -> Game -> PlayerMove -> Move
+moveByPlayer playerLens game = bool P2Move P1Move $ game ^. player1 . isElder == game ^. playerLens . isElder
 
 checkCarteBlanche :: Lens' Game Player -> Game -> Either PiquetError Game
 checkCarteBlanche playerLens game = 
-   let moveCarteBlanche = playerMove playerLens game CarteBlanche
+   let moveCarteBlanche = moveByPlayer playerLens game CarteBlanche
+       pastMoves        = fst <$> (game ^. dealMoves)
        piquetError
-         | moveCarteBlanche `elem` (game ^. dealMoves) = Just NotYourTurnError 
+         | moveCarteBlanche `elem` pastMoves = Just NotYourTurnError 
          | not (isCarteBlanche (game ^. playerLens . hand)) = Just InvalidCombination 
          | otherwise = Nothing
-       (pique, newGame) = if isJust piquetError
-                             then (Nothing, game)
-                             else addDealPoints playerLens 10 game
    in if isJust piquetError 
          then Left (fromMaybe UnknownCommand piquetError)
-         else Right (newGame & dealMoves %~ (moveCarteBlanche:))
+         else Right (addPlayerMove playerLens CarteBlanche game)
   
 changePlayerCards :: Hand -> Lens' Game Player -> Game -> Game
 changePlayerCards toChange playerLens game = 
@@ -243,12 +241,13 @@ changePlayerCards toChange playerLens game =
      else game & deck                             .~ newDeck
                & playerLens . hand                .~ newHand
                & playerLens . leftUntilCarteRouge .~ newHand
-               & dealMoves                        %~ (moveChange:)
                & isElderToPlay                    %~ not
                & step                             %~ succ
+               -- & dealMoves                        %~ (moveChange:)
+               & addPlayerMove playerLens moveChange
           where pHand = game ^. playerLens . hand 
                 (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
-                moveChange = playerMove playerLens game (Exchange toChange)
+                moveChange = Exchange toChange
 
 -- changePlayerCardsAction :: Lens' Game Player -> GameAction
 -- changePlayerCardsAction playerLens = do
@@ -322,16 +321,29 @@ checkCarteRouge playerLens maybeCombination = do
       display "[] Carte rouge -> +20"
       addDealPointsAction playerLens 20
 
-addDealPoints :: Lens' Game Player -> Int -> Game -> (Maybe PiqueEvent, Game)
-addDealPoints playerLens points game = (pique, game & playerLens . dealPoints .~ (pointsBefore + points + bonus) ) where
+addPlayerMove :: Lens' Game Player -> PlayerMove -> Game -> Game
+addPlayerMove playerLens move game = game'' where
+  mbPiquetMove = maybePiquetMove playerLens (movePoints move) game  -- is there a pique or repique ?
+  game'  = addPlayerMoveSimple playerLens game move  -- add points for the move
+  game'' = maybe game' (addPlayerMoveSimple playerLens game') mbPiquetMove -- maybe add points for the pique/repique
+
+addPlayerMoveSimple :: Lens' Game Player -> Game -> PlayerMove -> Game
+addPlayerMoveSimple playerLens game pmove = 
+  game & playerLens . dealPoints +~ points
+       & dealMoves %~ ((move, points):)
+  where points = movePoints pmove
+        move   = moveByPlayer playerLens game pmove
+
+maybePiquetMove :: Lens' Game Player -> Int -> Game -> Maybe PlayerMove
+maybePiquetMove playerLens points game = maybeMove where
   gameStep       = game ^. step
   pointsBefore   = game ^. (playerLens . dealPoints) 
   opponentPoints = game ^. (getOpponentLens playerLens . dealPoints)
-  (pique, bonus)
-      | (pointsBefore + points) >= 30 || 30 > pointsBefore = (Nothing, 0) -- not over 30, or not the first time
-      | (gameStep < PlayCards && opponentPoints <= 1)      = (Just Repique, 60) 
-      | (gameStep >= PlayCards && opponentPoints == 0)     = (Just Pique, 30) 
-      | otherwise                                          = (Nothing, 0)
+  maybeMove
+    | (pointsBefore + points) >= 30 || 30 > pointsBefore = Nothing -- not over 30, or not the first time
+    | (gameStep < PlayCards && opponentPoints <= 1)      = Just Repique
+    | (gameStep >= PlayCards && opponentPoints == 0)     = Just Pique
+    | otherwise                                          = Nothing
 
 addDealPointsAction :: Lens' Game Player -> Int -> GameAction
 addDealPointsAction playerLens points = do

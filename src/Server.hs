@@ -33,8 +33,10 @@ update (Leave playerId) g
   | otherwise                               = Left (NotConnectedError, show playerId)
 
 handlePlayerMsg :: Msg -> SendPortId -> Game -> Either (PiquetError, String) Game
-handlePlayerMsg DeclareCarteBlanche spid = (left (, show spid)) . (checkCarteBlanche (getPortIdPlayerLens spid))
+handlePlayerMsg DeclareCarteBlanche spid = (left (, show spid)) . checkCarteBlanche (getPortIdPlayerLens spid)
 handlePlayerMsg (Exchange hand)     spid = Right . changePlayerCards hand (getPortIdPlayerLens spid)
+-- handlePlayerMsg (DeclareCombination hand) spid = (left (, show spid)) . declareCombination hand (getPortIdPlayerLens spid)
+-- handlePlayerMsg (Respond response) spid = (left (, show spid)) . declareResponse response (getPortIdPlayerLens spid)
 handlePlayerMsg (ChangeName name')  spid = Right . ((getPortIdPlayerLens spid . name) .~ unpack name')
 handlePlayerMsg _                   spid = const $ Left (UnknownCommand, show spid)
 
