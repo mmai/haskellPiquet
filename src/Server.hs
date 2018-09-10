@@ -20,7 +20,7 @@ import Protocol
 import Game
 
 update :: EngineMsg Msg -> Game -> Either (PiquetError, String) Game
-update (GameMsg playerId msg) g = handlePlayerMsg msg playerId g
+update (GameMsg playerId msg) g = left (, show playerId) $ handlePlayerMsg msg playerId g
 update (Join playerId) g
   | isNothing (g ^. player1SendPortId) = Right $ g & player1SendPortId ?~ playerId -- ?~ == .~ Just
   | isNothing (g ^. player2SendPortId) = Right $ g & player2SendPortId ?~ playerId
@@ -32,13 +32,13 @@ update (Leave playerId) g
   | g ^. player2SendPortId == Just playerId = Right $ g & player2SendPortId .~ Nothing
   | otherwise                               = Left (NotConnectedError, show playerId)
 
-handlePlayerMsg :: Msg -> SendPortId -> Game -> Either (PiquetError, String) Game
-handlePlayerMsg DeclareCarteBlanche spid = (left (, show spid)) . checkCarteBlanche (getPortIdPlayerLens spid)
-handlePlayerMsg (Exchange hand)     spid = Right . changePlayerCards hand (getPortIdPlayerLens spid)
--- handlePlayerMsg (DeclareCombination hand) spid = (left (, show spid)) . declareCombination hand (getPortIdPlayerLens spid)
--- handlePlayerMsg (Respond response) spid = (left (, show spid)) . declareResponse response (getPortIdPlayerLens spid)
-handlePlayerMsg (ChangeName name')  spid = Right . ((getPortIdPlayerLens spid . name) .~ unpack name')
-handlePlayerMsg _                   spid = const $ Left (UnknownCommand, show spid)
+handlePlayerMsg :: Msg -> SendPortId -> Game -> Either PiquetError Game
+handlePlayerMsg DeclareCarteBlanche       spid = checkCarteBlanche (getPortIdPlayerLens spid)
+handlePlayerMsg (Exchange hand)           spid = Right . changePlayerCards hand (getPortIdPlayerLens spid)
+handlePlayerMsg (DeclareCombination hand) spid = declareCombination hand (getPortIdPlayerLens spid)
+handlePlayerMsg (Respond response)        spid = declareResponse response (getPortIdPlayerLens spid)
+handlePlayerMsg (ChangeName name')        spid = Right . ((getPortIdPlayerLens spid . name) .~ unpack name')
+handlePlayerMsg _                         spid = const $ Left UnknownCommand
 
 viewG :: Either (PiquetError, String) Game -> GameStateMsg
 viewG (Left err) = Left err

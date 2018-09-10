@@ -156,6 +156,9 @@ mkInitialState stdGen = Game
                                , _isElder = False
                                , _leftUntilCarteRouge = noCards
                                , _cardPlayed = Nothing
+                               , _pointCandidate = Nothing
+                               , _sequenceCandidate = Nothing
+                               , _setCandidate = Nothing
                                , _dealPoints = 0
                                , _dealWons = 0
                                , _gamePoints = 0
@@ -177,8 +180,14 @@ deal g =
   let (hands, stock) = drawHands (g ^. deck) 12 2 
    in g & player1 . hand .~ hands !! 0
         & player1 . leftUntilCarteRouge .~ hands !! 0
+        & player1 . pointCandidate      .~ Nothing
+        & player1 . sequenceCandidate   .~ Nothing
+        & player1 . setCandidate        .~ Nothing
         & player2 . hand                .~ hands !! 1
         & player2 . leftUntilCarteRouge .~ hands !! 1
+        & player2 . pointCandidate      .~ Nothing
+        & player2 . sequenceCandidate   .~ Nothing
+        & player2 . setCandidate        .~ Nothing
         & deck                          .~ stock
         & dealMoves                     .~ []
         & step                          .~ succ Deal
@@ -249,34 +258,13 @@ changePlayerCards toChange playerLens game =
                 (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
                 moveChange = Exchange toChange
 
--- changePlayerCardsAction :: Lens' Game Player -> GameAction
--- changePlayerCardsAction playerLens = do
---   game <- get
---   let pHand = game ^. playerLens . hand 
---       pSock = game ^. playerLens . sockHandle
---   lift $ hPutStrLn pSock $ (game ^. playerLens . name) ++ ", this is your hand : " ++ show pHand
---   when (isCarteBlanche pHand) $ declareCarteBlanche playerLens 
---   lift $ hPutStrLn pSock "Change cards : "
---   stToChange <- lift ( liftM (filter (/= '\r')) $ hGetLine pSock) 
---   unless (null stToChange) $ do
---     let idxToChange        = read <$> splitOn "," stToChange                  
---         toChange           = fromList $ getCardsAtPos pHand idxToChange     
---         (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
---     deck                             .= newDeck
---     playerLens . hand                .= newHand
---     playerLens . leftUntilCarteRouge .= newHand
---     lift $ hPutStrLn pSock $ "Your new hand : " ++ show newHand
+declareCombination :: Hand -> Lens' Game Player -> Game -> Either PiquetError Game
+declareCombination hand playerLens game = undefined
 
--- declareCarteBlanche :: Lens' Game Player -> GameAction 
--- declareCarteBlanche playerLens = do
---   game <- get
---   let pHand = game ^. playerLens . hand 
---       pSock = game ^. playerLens . sockHandle
---   lift $ hPutStrLn pSock "Declare carte blanche (y/n) ?"
---   resp <- lift (hGetLine pSock)
---   when (resp == "y") $ do
---     display $ "[] Carte Blanche : " ++ show pHand
---     addDealPointsAction playerLens 10
+declareResponse :: DeclarationResponse -> Lens' Game Player -> Game -> Either PiquetError Game
+declareResponse Good playerLens game = undefined
+declareResponse NotGood playerLens game = undefined
+declareResponse Equals playerLens game = undefined
 
 declareCombinationElder :: CombinationType -> GameAction
 declareCombinationElder combinationType = do

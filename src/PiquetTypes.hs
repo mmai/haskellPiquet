@@ -83,6 +83,9 @@ data Player = Player { _hand :: Hand
                      , _isElder :: Bool
                      , _leftUntilCarteRouge :: Hand
                      , _cardPlayed :: Maybe Card
+                     , _pointCandidate :: Maybe Hand
+                     , _sequenceCandidate :: Maybe Hand
+                     , _setCandidate :: Maybe Hand
                      , _dealPoints :: Int
                      , _dealWons :: Int
                      , _gamePoints :: Int
