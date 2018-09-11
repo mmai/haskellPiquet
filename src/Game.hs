@@ -76,34 +76,6 @@ play stdGen p1Handle p2Handle = do
     endGame
   return ()
 
--- runClient :: Server -> Client -> IO ()
--- runClient server client = forever $ do
---   (mid, msg) <- readMessage (client^.clientInput)
---   handleMessage server (client^.clientId) mid msg
---   return ()
---
--- readMessage :: Streams.InputStream BS.ByteString -> IO (Word8, BS.ByteString)
--- readMessage in' = do
---   inS <- Streams.lockingInputStream in'
---   mid <- handleStream 1 inS
---   lth <- handleStream 2 inS
---   out <- if msgSize lth <= maxMsgSize
---          then handleStream (msgSize lth) inS
---          else return BS.empty
---   return (midData mid, out)
---   where
---     midData mid' = fromIntegral $ runGet getWord8 (BL.fromStrict mid')
---     msgSize lth' = (fromIntegral $ runGet getWord16be (BL.fromStrict lth')) :: Int
---     handleStream len str =
---       handle (\(SomeException e) -> do debug $ "read failed: " ++ show e; return BS.empty) $
---         Streams.readExactly len str
---
--- sendMessage :: (GameMessage m, Encode m) => m -> Streams.OutputStream BS.ByteString -> IO ()
--- sendMessage msg out' = do
---   outS <- Streams.lockingOutputStream out'
---   handle (\(SomeException e) -> debug $ "write failed: " ++ show e ) $
---     Streams.write (Just $ messageOutWithIdAndLength msg) outS
-
 playDeal :: GameAction
 playDeal = -- step .= Start >> start
          -- >>                 showDealNum
@@ -194,40 +166,6 @@ deal g =
 
 type GameAction = StateT Game IO ()
 
--- start :: GameAction
--- start =  pointWinner .= Nobody
---       >> sequenceWinner .= Nobody
---       >> setWinner .= Nobody
---       >> deck .= sortedDeck
---       >> shuffle
-
--- shuffle :: GameAction
--- shuffle = use deck >>= lift . Shuffle.shuffleIO >>= (deck .=)
-
--- shuffle :: State Game ()
--- shuffle = do
---   iniDeck <- use deck
---   iniStdGen <- use stdGen
---   let (newStdGen, newDeck) = Shuffle.shuffle iniDeck iniStdGen
---   deck .= newDeck
---   stdGen .= newStdGen
-
--- dealA :: GameAction
--- dealA = do
---   game <- get
---   let (hands, stock) = drawHands (game ^. deck) 12 2 
---   player1 . hand                .= hands !! 0
---   player1 . leftUntilCarteRouge .= hands !! 0
---   player2 . hand                .= hands !! 1
---   player2 . leftUntilCarteRouge .= hands !! 1
---   deck                          .= stock
-
--- changeElderCards :: GameAction
--- changeElderCards = changePlayerCardsAction elder
---
--- changeYoungerCards :: GameAction
--- changeYoungerCards = changePlayerCardsAction younger
-
 moveByPlayer :: Lens' Game Player -> Game -> PlayerMove -> Move
 moveByPlayer playerLens game = bool P2Move P1Move $ game ^. player1 . isElder == game ^. playerLens . isElder
 
@@ -290,7 +228,7 @@ declareCombinationResponse combinationType = do
   lift $ hPutStrLn youngerSock $ "Response " ++ show combinationType ++ " : " ++ show responseChoices
   choiceYounger <- lift $ hGetLine youngerSock
   let maybeChoiceYounger = (responseChoices !!) <$> readMaybe choiceYounger
-  display $ "[Younger] " ++ show (fromMaybe Good (fst <$> maybeChoiceYounger))
+  display $ "[Younger] " ++ show (maybe Good fst maybeChoiceYounger)
   (declarationWinner, combination, maybeToDisplay) <- lift $ getDeclarationWinner responseChoices maybeElderCombination maybeChoiceYounger
   maybe (return ()) display maybeToDisplay
   getWinnerLens      combinationType .= declarationWinner
