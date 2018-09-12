@@ -99,7 +99,7 @@ playDeal = -- step .= Start >> start
          >>                 (player2 . isElder) %= not
 
 declarationElder :: CombinationType -> GameAction
-declarationElder ct = declareCombinationElder ct 
+declarationElder ct = declareCombinationElderAction ct 
    >> step %= succ >> declareCombinationResponse ct
    >> step %= succ >> setCombinationPoints Elder ct
 
@@ -196,16 +196,52 @@ changePlayerCards toChange playerLens game =
                 (newHand, newDeck) =  changeCards (game ^. deck) pHand toChange
                 moveChange = Exchange toChange
 
-declareCombination :: Hand -> Lens' Game Player -> Game -> Either PiquetError Game
-declareCombination hand playerLens game = undefined
+declareCombination :: Combination -> Lens' Game Player -> Game -> Either PiquetError Game
+declareCombination comb@(Combination ctype hand) playerLens game 
+  | not (isPlayerToPlay playerLens game)                                = Left NotYourTurnError
+  | Just ctype /= stepCombinationType (game ^. step)                    = Left InvalidCombination
+  | not (comb `elem` getCombinations ctype (game ^. playerLens . hand)) = Left InvalidCombination
+  | game ^. step `elem` [DeclarePointElder, DeclareSequenceElder, DeclareSetElder] = declareCombinationElder comb ctype hand
+  | otherwise = undefined
 
-declareResponse :: DeclarationResponse -> Lens' Game Player -> Game -> Either PiquetError Game
-declareResponse Good playerLens game = undefined
-declareResponse NotGood playerLens game = undefined
-declareResponse Equals playerLens game = undefined
+declareCombinationElder :: Combination -> Lens' Game Player -> Game -> Either PiquetError Game
+declareCombinationElder comb@(Combination ctype hand) playerLens game 
+  | ctype == Point && game ^. playerLens . pointCandidate == Nothing       = Right $ game & playerLens . pointCandidate .~ comb
+                                                                                          & isPlayerToPlay %~ not
+                                                                                          & step %~ next
+  | ctype == Sequence && game ^. playerLens . sequenceCandidate == Nothing = Right $ game & playerLens . sequenceCandidate .~ comb
+                                                                                          & isPlayerToPlay %~ not
+                                                                                          & step %~ next
+  | ctype == Set && game ^. playerLens . setCandidate == Nothing           = Right $ game & playerLens . setCandidate .~ comb
+                                                                                          & isPlayerToPlay %~ not
+                                                                                          & step %~ next
+  | otherwise = undefined
 
-declareCombinationElder :: CombinationType -> GameAction
-declareCombinationElder combinationType = do
+       
+stepCombinationType :: Step -> Maybe CombinationType
+stepCombinationType step = 
+  case step of
+    DeclarePointElder        -> Just Point
+    DeclarePointResponse     -> Just Point
+    SetPointsPointElder      -> Just Point
+    DeclareSequenceElder     -> Just Sequence
+    DeclareSequenceResponse  -> Just Sequence
+    SetPointsSequenceElder   -> Just Sequence
+    DeclareSetElder          -> Just Set
+    DeclareSetResponse       -> Just Set
+    SetPointsSetElder        -> Just Set
+    SetPointsPointYounger    -> Just Point
+    SetPointsSequenceYounger -> Just Sequence
+    SetPointsSetYounger      -> Just Set
+    _                        -> Nothing
+
+-- declareResponse :: DeclarationResponse -> Lens' Game Player -> Game -> Either PiquetError Game
+-- declareResponse Good playerLens game = undefined
+-- declareResponse NotGood playerLens game = undefined
+-- declareResponse Equals playerLens game = undefined
+
+declareCombinationElderAction :: CombinationType -> GameAction
+declareCombinationElderAction combinationType = do
   game <- get
   elderHand <- use (elder . hand)
   elderSock <- use (elder . sockHandle)

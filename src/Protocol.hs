@@ -18,8 +18,8 @@ import PiquetTypes
 data Msg = Exchange Hand 
          | DeclareCarteBlanche
          | DeclareCarteRouge
-         | DeclareCombination Hand 
-         | Respond DeclarationResponse 
+         | DeclareCombination Combination 
+         -- | Respond DeclarationResponse 
          | PlayCard Card 
          | ChangeName Text 
          deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)

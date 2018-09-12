@@ -51,11 +51,19 @@ handParser = do
   char ')'
   return $ fromList cards
 
+combinationParser :: Parser Combination
+combinationParser = do
+  ctype <- combinationTypeParser
+  hand <- handParser
+  return $ Combination ctype hand
+
 msgExchangeParser :: Parser Msg
 msgExchangeParser = string "e " >> (Exchange <$> handParser)
 
 msgDeclareCombinationParser :: Parser Msg
-msgDeclareCombinationParser = string "d " >> (DeclareCombination <$> handParser)
+msgDeclareCombinationParser = string "d pt " >> (DeclareCombination . Combination Point <$> handParser)
+msgDeclareCombinationParser = string "d seq " >> (DeclareCombination . Combination Sequence <$> handParser)
+msgDeclareCombinationParser = string "d set " >> (DeclareCombination . Combination Set <$> handParser)
 
 msgDeclareCarteBlancheParser :: Parser Msg
 msgDeclareCarteBlancheParser = string "d cb" >> return DeclareCarteBlanche
@@ -63,11 +71,11 @@ msgDeclareCarteBlancheParser = string "d cb" >> return DeclareCarteBlanche
 msgDeclareCarteRougeParser :: Parser Msg
 msgDeclareCarteRougeParser = string "d cr" >> return DeclareCarteRouge
 
-msgDeclarationResponseParser :: Parser Msg
-msgDeclarationResponseParser = 
-      (string "r good"     >> (return $ Respond Good))
-  <|> (string "r not good" >> (return $ Respond NotGood))
-  <|> (string "r equals"   >> (return $ Respond Equals))
+-- msgDeclarationResponseParser :: Parser Msg
+-- msgDeclarationResponseParser = 
+--       (string "r good"     >> (return $ Respond Good))
+--   <|> (string "r not good" >> (return $ Respond NotGood))
+--   <|> (string "r equals"   >> (return $ Respond Equals))
 
 msgPlayCardParser :: Parser Msg
 msgPlayCardParser = string "p " >> PlayCard <$> cardParser
