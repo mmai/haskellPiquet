@@ -13,6 +13,7 @@ import GHC.Generics
 
 import Network.GameEngine
 import Cards
+import Combinations
 import PiquetTypes
 
 data Msg = Exchange Hand 

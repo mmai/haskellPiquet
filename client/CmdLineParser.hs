@@ -14,6 +14,7 @@ import Text.Megaparsec.Char
 import PiquetTypes hiding (PlayerMove(..))
 import Protocol
 import Cards
+import Combinations
 
 -- Void : no custom error messages
 -- Text : input data type
@@ -51,19 +52,13 @@ handParser = do
   char ')'
   return $ fromList cards
 
-combinationParser :: Parser Combination
-combinationParser = do
-  ctype <- combinationTypeParser
-  hand <- handParser
-  return $ Combination ctype hand
-
 msgExchangeParser :: Parser Msg
 msgExchangeParser = string "e " >> (Exchange <$> handParser)
 
 msgDeclareCombinationParser :: Parser Msg
-msgDeclareCombinationParser = string "d pt " >> (DeclareCombination . Combination Point <$> handParser)
-msgDeclareCombinationParser = string "d seq " >> (DeclareCombination . Combination Sequence <$> handParser)
-msgDeclareCombinationParser = string "d set " >> (DeclareCombination . Combination Set <$> handParser)
+msgDeclareCombinationParser = (string "d pt " >> (DeclareCombination . Combination Point <$> handParser))
+                          <|> (string "d seq " >> (DeclareCombination . Combination Sequence <$> handParser))
+                          <|> (string "d set " >> (DeclareCombination . Combination Set <$> handParser))
 
 msgDeclareCarteBlancheParser :: Parser Msg
 msgDeclareCarteBlancheParser = string "d cb" >> return DeclareCarteBlanche
@@ -87,7 +82,7 @@ msgParser :: Parser Msg
 msgParser = msgDeclareCarteBlancheParser
         <|> msgExchangeParser
         <|> msgDeclareCombinationParser
-        <|> msgDeclarationResponseParser
+        -- <|> msgDeclarationResponseParser
         <|> msgDeclareCarteRougeParser
         <|> msgPlayCardParser
         -- <|> msgChangeName

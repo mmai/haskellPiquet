@@ -1,6 +1,6 @@
 name:                piquet
 version:             0.1.0.0
-github:              "githubuser/piquet"
+github:              "mmai/piquet"
 license:             BSD3
 author:              "Henri Bourcereau"
 maintainer:          "henri@bourcereau.fr"
