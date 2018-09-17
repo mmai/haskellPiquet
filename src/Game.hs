@@ -212,30 +212,41 @@ declareCombination comb@(Combination ctype _) playerLens game
 
 declareCombinationElder :: Combination -> Lens' Game Player -> Game -> Either PiquetError Game
 declareCombinationElder comb@(Combination ctype chand) playerLens game 
-  | game ^. playerLens . (getCandidateLens ctype) /= Nothing = Left NotYourTurnError
-  | otherwise = Right $ game & playerLens . (getCandidateLens ctype) .~ Just chand
+  | isJust (game ^. playerLens . getCandidateLens ctype) = Left NotYourTurnError
+  | otherwise = Right $ game & playerLens . getCandidateLens ctype .~ Just chand
                              & isElderToPlay %~ not
                              & step %~ succ
+                             & addPlayerMove playerLens (DeclarationCount ctype (length chand))
 
 declareCombinationResponse :: Combination -> Lens' Game Player -> Game -> Either PiquetError Game
 declareCombinationResponse comb@(Combination ctype chand) playerLens game =
-  if game ^. playerLens . (getCandidateLens ctype) /= Nothing 
+  if isJust (game ^. playerLens . getCandidateLens ctype)
      then Left NotYourTurnError
-     else 
-       case fmap (compare comb) (Combination ctype <$> (game ^. elder . (getCandidateLens ctype))) of 
-         Just EQ -> Right $ game & playerLens . (getCandidateLens ctype) .~ Nothing
-                                 & elder .  (getCandidateLens ctype) .~ Nothing
-                                 & (getWinnerLens ctype) .~ Tie
-                                 & isElderToPlay %~ not
-                                 & step %~ succ
-         Just GT -> Right $ game & playerLens . (getCandidateLens ctype) .~ Just chand
-                                 & elder .  (getCandidateLens ctype) .~ Nothing
-                                 & (getWinnerLens ctype) .~ Younger
-                                 & isElderToPlay %~ not
-                                 & step %~ (succ . succ) -- elder lost => we bypass SetPoints*combination*Elder step
-         _       -> Right $ game & (getWinnerLens ctype) .~ Elder -- Nothing or Just LT => elder win
-                                 & isElderToPlay %~ not
-                                 & step %~ succ
+     else Right $ game'' & isElderToPlay %~ not
+                         & step %~ succ
+       where 
+         -- elder combination souldn't be Nothing at this stage
+         elderHand = fromMaybe (fromList []) (game ^. elder . getCandidateLens ctype)
+         compareCombs = compare comb (Combination ctype elderHand)
+         game' = if length chand == length elderHand
+                    then game & addPlayerMove playerLens (PlayerResponse ctype Equals)
+                    else game
+         game'' = case compareCombs of 
+                   EQ -> game' & playerLens . getCandidateLens ctype .~ Nothing
+                               & elder             . getCandidateLens ctype .~ Nothing
+                               & getWinnerLens ctype .~ Tie
+                               & addPlayerMove elder (DeclarationUpper ctype (rank $ maximum chand))
+                               & addPlayerMove playerLens (PlayerResponse ctype Equals)
+                   GT -> game' & playerLens . getCandidateLens ctype .~ Just chand
+                               & elder      . getCandidateLens ctype .~ Nothing
+                               & getWinnerLens ctype .~ Younger
+                               & addPlayerMove playerLens (PlayerResponse ctype NotGood)
+                               & step %~ succ -- elder lost, we bypass SetPoints step for Elder
+                   LT -> game' & getWinnerLens ctype .~ Elder -- elder win
+                               & addPlayerMove playerLens (PlayerResponse ctype Good)
+
+-- setCombinationPoints :: CombinationType -> Lens' Game Player -> Game -> Either PiquetError Game
+-- setCombinationPoints = undefined
 
 stepCombinationType :: Step -> Maybe CombinationType
 stepCombinationType step = 

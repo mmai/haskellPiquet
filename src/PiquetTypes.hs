@@ -42,6 +42,9 @@ data Step = Start
 data Move = P1Move PlayerMove | P2Move PlayerMove 
   deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
 
+data DeclarationResponse = Good | NotGood | Equals 
+          deriving (Eq, Show, Binary, Generic, FromJSON, ToJSON)
+
 data PlayerMove = CarteBlanche 
                 | CarteRouge   
                 | Pique        
@@ -52,6 +55,9 @@ data PlayerMove = CarteBlanche
                 | WinAsSecond  
                 | WinLastTrick 
                 | Exchange Hand 
+                | DeclarationCount CombinationType Int 
+                | DeclarationUpper CombinationType Rank 
+                | PlayerResponse CombinationType DeclarationResponse
                 | Declaration Combination 
                 | PlayCard Card 
   deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
@@ -97,9 +103,6 @@ makeLenses ''Player
 
 instance Show Player where
   show p = (p ^. name) ++ " : "  ++ show (p ^. dealPoints) ++ " rougeLeft=" ++ (show . size) (p ^. leftUntilCarteRouge) ++ " : "++ show (p ^. hand)
-
-data DeclarationResponse = Good | NotGood | Equals 
-          deriving (Eq, Show, Binary, Generic, FromJSON, ToJSON)
 
 data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 
