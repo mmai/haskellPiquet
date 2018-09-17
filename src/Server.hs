@@ -36,6 +36,7 @@ handlePlayerMsg :: Msg -> SendPortId -> Game -> Either PiquetError Game
 handlePlayerMsg DeclareCarteBlanche       spid = checkCarteBlanche (getPortIdPlayerLens spid)
 handlePlayerMsg (Exchange hand)           spid = Right . changePlayerCards hand (getPortIdPlayerLens spid)
 handlePlayerMsg (DeclareCombination comb) spid = declareCombination comb (getPortIdPlayerLens spid)
+handlePlayerMsg (PlayCard card)           spid = playCard card (getPortIdPlayerLens spid)
 -- handlePlayerMsg (Respond response)        spid = declareResponse response (getPortIdPlayerLens spid)
 handlePlayerMsg (ChangeName name')        spid = Right . ((getPortIdPlayerLens spid . name) .~ unpack name')
 handlePlayerMsg _                         spid = const $ Left UnknownCommand

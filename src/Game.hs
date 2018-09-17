@@ -53,7 +53,7 @@ getCombinationLens Point    = pointCombination
 getCombinationLens Sequence = sequenceCombination
 getCombinationLens Set      = setCombination
 
-getCandidateLens :: CombinationType ->  Lens' Player (Maybe Hand)
+getCandidateLens :: CombinationType ->  Lens' Player (Maybe Combination)
 getCandidateLens Point    = pointCandidate
 getCandidateLens Sequence = sequenceCandidate
 getCandidateLens Set      = setCandidate
@@ -203,17 +203,24 @@ changePlayerCards toChange playerLens game =
 
 declareCombination :: Combination -> Lens' Game Player -> Game -> Either PiquetError Game
 declareCombination comb@(Combination ctype _) playerLens game 
-  | not (isPlayerToPlay playerLens game)                                = Left NotYourTurnError
-  | Just ctype /= stepCombinationType (game ^. step)                    = Left InvalidCombination
-  | not (comb `elem` (getCombinations ctype (game ^. playerLens . hand))) = Left InvalidCombination
-  | game ^. step `elem` [DeclarePointElder, DeclareSequenceElder, DeclareSetElder] = declareCombinationElder comb playerLens game
-  | game ^. step `elem` [DeclarePointResponse, DeclareSequenceResponse, DeclareSetResponse] = declareCombinationResponse comb playerLens game
-  | otherwise = undefined
+  | not (isPlayerToPlay playerLens game)             = Left NotYourTurnError
+  | Just ctype /= stepCombinationType (game ^. step) = Left InvalidCombination
+  | not (comb `elem` playerCombinations)  = Left InvalidCombination
+  | game ^. step `elem` declareElderSteps = declareCombinationElder    comb playerLens game
+  | game ^. step `elem` responseSteps     = declareCombinationResponse comb playerLens game
+  | game ^. step `elem` setPtsElderSteps  = setPointsCombinationElder  comb playerLens game
+  | game ^. step `elem` setPtsYoungSteps  = setPointsCombinationYoung  comb playerLens game
+  | otherwise                             = Left $ InvalidForStepError (game ^. step)
+  where playerCombinations = (getCombinations ctype (game ^. playerLens . hand))
+        declareElderSteps  = [DeclarePointElder, DeclareSequenceElder, DeclareSetElder]
+        responseSteps      = [DeclarePointResponse, DeclareSequenceResponse, DeclareSetResponse]
+        setPtsElderSteps   = [SetPointsPointElder, SetPointsSetElder, SetPointsSequenceElder]
+        setPtsYoungSteps   = [SetPointsPointYounger, SetPointsSetYounger, SetPointsSequenceYounger]
 
 declareCombinationElder :: Combination -> Lens' Game Player -> Game -> Either PiquetError Game
 declareCombinationElder comb@(Combination ctype chand) playerLens game 
   | isJust (game ^. playerLens . getCandidateLens ctype) = Left NotYourTurnError
-  | otherwise = Right $ game & playerLens . getCandidateLens ctype .~ Just chand
+  | otherwise = Right $ game & playerLens . getCandidateLens ctype .~ Just comb
                              & isElderToPlay %~ not
                              & step %~ succ
                              & addPlayerMove playerLens (DeclarationCount ctype (length chand))
@@ -226,9 +233,9 @@ declareCombinationResponse comb@(Combination ctype chand) playerLens game =
                          & step %~ succ
        where 
          -- elder combination souldn't be Nothing at this stage
-         elderHand = fromMaybe (fromList []) (game ^. elder . getCandidateLens ctype)
-         compareCombs = compare comb (Combination ctype elderHand)
-         game' = if length chand == length elderHand
+         elderComb = fromMaybe (Combination ctype (fromList [])) (game ^. elder . getCandidateLens ctype)
+         compareCombs = compare comb elderComb
+         game' = if length chand == length (cards elderComb)
                     then game & addPlayerMove playerLens (PlayerResponse ctype Equals)
                     else game
          game'' = case compareCombs of 
@@ -237,16 +244,31 @@ declareCombinationResponse comb@(Combination ctype chand) playerLens game =
                                & getWinnerLens ctype .~ Tie
                                & addPlayerMove elder (DeclarationUpper ctype (rank $ maximum chand))
                                & addPlayerMove playerLens (PlayerResponse ctype Equals)
-                   GT -> game' & playerLens . getCandidateLens ctype .~ Just chand
+                               & step %~ succ -- tie, we bypass SetPoints step for Elder
+                   GT -> game' & playerLens . getCandidateLens ctype .~ Just comb
                                & elder      . getCandidateLens ctype .~ Nothing
                                & getWinnerLens ctype .~ Younger
                                & addPlayerMove playerLens (PlayerResponse ctype NotGood)
                                & step %~ succ -- elder lost, we bypass SetPoints step for Elder
                    LT -> game' & getWinnerLens ctype .~ Elder -- elder win
                                & addPlayerMove playerLens (PlayerResponse ctype Good)
+                               & addPlayerMove elder (Declaration elderComb)
 
--- setCombinationPoints :: CombinationType -> Lens' Game Player -> Game -> Either PiquetError Game
--- setCombinationPoints = undefined
+setPointsCombinationElder :: Combination -> Lens' Game Player -> Game -> Either PiquetError Game
+setPointsCombinationElder comb@(Combination ctype chand) playerLens game
+  | length chand == 0 = Right $ game & step %~ succ
+  | fmap (compare comb) (game ^. playerLens . getCandidateLens ctype) /= Just LT = Left InvalidCombination
+  | otherwise = Right $ game & playerLens . getCandidateLens ctype .~ Just comb
+                             & addPlayerMove playerLens (Declaration comb) 
+
+setPointsCombinationYoung :: Combination -> Lens' Game Player -> Game -> Either PiquetError Game
+setPointsCombinationYoung comb@(Combination ctype chand) playerLens game
+  | length chand == 0 && ctype == Point    = Right $ game & step %~ succ & initPointsYounger Sequence
+  | length chand == 0 && ctype == Sequence = Right $ game & step %~ succ & initPointsYounger Set
+  | length chand == 0 && ctype == Set      = Right $ game & step %~ succ
+  | fmap (compare comb) (game ^. playerLens . getCandidateLens ctype) /= Just LT = Left InvalidCombination
+  | otherwise = Right $ game & playerLens . getCandidateLens ctype .~ Just comb
+                             & addPlayerMove playerLens (Declaration comb) 
 
 stepCombinationType :: Step -> Maybe CombinationType
 stepCombinationType step = 
@@ -264,6 +286,24 @@ stepCombinationType step =
     SetPointsSequenceYounger -> Just Sequence
     SetPointsSetYounger      -> Just Set
     _                        -> Nothing
+
+playCard :: Card -> Lens' Game Player -> Game -> Either PiquetError Game
+playCard card playerLens game
+  | not (isPlayerToPlay playerLens game)    = Left NotYourTurnError
+  | card `member` (game ^. playerLens . hand) = Left CardNotInHand
+  | game ^. step == PlayFirstCard           = Right $ game & playerLens . hand %~ delete card
+                                                           & playerLens . cardPlayed .~ Just card
+                                                           & addPlayerMove playerLens (PlayFirst card)
+                                                           & step %~ succ
+                                                           & initPointsYounger Point
+
+initPointsYounger :: CombinationType -> Game -> Game
+initPointsYounger ctype game 
+  | isJust mbComb     = game & addPlayerMove younger (Declaration $ fromJust mbComb)
+  | ctype == Point    = game & step %~ succ & initPointsYounger Sequence
+  | ctype == Sequence = game & step %~ succ & initPointsYounger Set
+  | ctype == Set      = game & step %~ succ
+  where mbComb = game ^. younger . getCandidateLens ctype
 
 -- declareResponse :: DeclarationResponse -> Lens' Game Player -> Game -> Either PiquetError Game
 -- declareResponse Good playerLens game = undefined
@@ -408,6 +448,7 @@ setCombinationElderPoints combinationType = do
       sequence_ $ (addDealPointsAction elder . getCombinationPoints) <$> others  -- add points 
       sequence_ $ checkCarteRouge elder . Just <$> others 
 
+-- XXX to use in Client
 getResponseChoices :: Maybe Combination -> [Combination] -> [(DeclarationResponse, Maybe Combination)]
 getResponseChoices Nothing [] = []
 getResponseChoices Nothing combs = (Equals, Nothing) : ((NotGood, ) . Just <$> combs)
@@ -440,11 +481,11 @@ getDeclarationWinner ds (Just cEld) (Just d@(Equals, Just cYoung)) =
        return (winner, combination, Just toDisplay )
 
 playFirstCard :: GameAction
-playFirstCard = use activePlayer >>= lift . chooseCard >>= playCard
+playFirstCard = use activePlayer >>= lift . chooseCard >>= playCardAction
 
 playCards :: GameAction
 playCards = do
-  use activePlayer >>= lift . chooseCard >>= playCard
+  use activePlayer >>= lift . chooseCard >>= playCardAction
   use step <&> ( == PlayEnd ) >>= bool playCards checkPlayPoints
 
 chooseCard :: Player -> IO Card
@@ -461,8 +502,8 @@ chooseCard player = do
       chooseCard player
     Just card -> return card
 
-playCard :: Card -> GameAction
-playCard card = do
+playCardAction :: Card -> GameAction
+playCardAction card = do
   aHand <- use $ activePlayer . hand
   when ( card `member` aHand ) $ do
     game <- get

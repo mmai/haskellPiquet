@@ -47,19 +47,19 @@ data DeclarationResponse = Good | NotGood | Equals
 
 data PlayerMove = CarteBlanche 
                 | CarteRouge   
-                | Pique        
-                | Repique      
-                | WinCards     
-                | Capot        
-                | PlayFirst Card 
-                | WinAsSecond  
-                | WinLastTrick 
                 | Exchange Hand 
                 | DeclarationCount CombinationType Int 
                 | DeclarationUpper CombinationType Rank 
                 | PlayerResponse CombinationType DeclarationResponse
                 | Declaration Combination 
+                | Repique      
+                | PlayFirst Card 
+                | Pique        
+                | WinAsSecond  
+                | WinLastTrick 
                 | PlayCard Card 
+                | WinCards     
+                | Capot        
   deriving (Eq, Show, Generic, Binary, ToJSON, FromJSON)
 
 movePoints :: PlayerMove -> Int
@@ -79,6 +79,7 @@ movePoints move = case move of
 data PiquetError = NotYourTurnError 
                  | InvalidForStepError Step 
                  | InvalidCombination
+                 | CardNotInHand
                  | AlreadyConnectedError
                  | NotConnectedError
                  | UnknownCommand
@@ -89,9 +90,9 @@ data Player = Player { _hand :: Hand
                      , _isElder :: Bool
                      , _leftUntilCarteRouge :: Hand
                      , _cardPlayed :: Maybe Card
-                     , _pointCandidate :: Maybe Hand
-                     , _sequenceCandidate :: Maybe Hand
-                     , _setCandidate :: Maybe Hand
+                     , _pointCandidate :: Maybe Combination
+                     , _sequenceCandidate :: Maybe Combination
+                     , _setCandidate :: Maybe Combination
                      , _dealPoints :: Int
                      , _dealWons :: Int
                      , _gamePoints :: Int
