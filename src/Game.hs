@@ -96,8 +96,8 @@ playDeal = -- step .= Start >> start
          -- >> step %= succ >> setCombinationPointsAction Younger Point
          -- >> step %= succ >> setCombinationPointsAction Younger Sequence
          -- >> step %= succ >> setCombinationPointsAction Younger Set
-          step %= succ >> playCards
-         >> step %= succ >> endGame
+         -- >> step %= succ >> playCards
+          step %= succ >> endGame
          >>                 showGame
          >>                 dealNum %= nextDealNum
          >>                 (player1 . isElder) %= not
@@ -326,64 +326,76 @@ stepCombinationType step =
 --   getCombinationLens combinationType .= combination
 
 playCard :: Card -> Lens' Game Player -> Game -> Either PiquetError Game
-playCard card playerLens game = game' & checkLastTrick where
-  game'
-    | not (isPlayerToPlay playerLens game)    = Left NotYourTurnError
+playCard card playerLens game
+    | not (isPlayerToPlay playerLens game)      = Left NotYourTurnError
     | card `member` (game ^. playerLens . hand) = Left CardNotInHand
-    | game ^. step == PlayFirstCard           = Right $ game & playerLens . hand %~ delete card
-                                                             & playerLens . cardPlayed .~ Just card
-                                                             & addPlayerMove playerLens (PlayFirst card)
-                                                             & step %~ succ
-                                                             & initPointsYounger Point
-    | game ^. step /= PlayCards               = Left $ InvalidForStepError (game ^. step)
-    | -- premiere carte
-    | -- seconde carte lose
-    | -- seconde carte win 
-    | -- seconde carte win 
+    | game ^. step == PlayFirstCard             = Right $ game 
+                                                           & playerLens . hand %~ delete card
+                                                           & playerLens . cardPlayed .~ Just card
+                                                           & addPlayerMove playerLens (PlayFirst card)
+                                                           & step %~ succ
+                                                           & initPointsYounger Point
+    | game ^. step /= PlayCards                 = Left $ InvalidForStepError (game ^. step)
+    | otherwise                                 = 
+        case game ^. inactivePlayer . cardPlayed of 
+          Nothing           -> Right $ game & playerLens . hand %~ delete card
+                                            & playerLens . cardPlayed .~ Just card
+                                            & addPlayerMove playerLens (PlayFirst card)
+          Just opponentCard -> Right $ game & playerLens . hand %~ delete card
+                                            & playerLens . cardPlayed .~ Just card
+                                            & addPlayerMove playerLens (PlayCard card)
+                                            & setWinner opponentCard
+                                            & activePlayer   . cardPlayed .~ Nothing
+                                            & inactivePlayer . cardPlayed .~ Nothing
+                                            & checkLastTrick activePlayerWon
+     where 
+       wonAgainstCard oppCard = suit card == suit oppCard && rank card > rank oppCard
+       activePlayerWon = maybe False wonAgainstCard (game ^. inactivePlayer . cardPlayed)
+       setWinner oppCard game = if activePlayerWon 
+                                   then game & addPlayerMove playerLens WinAsSecond
+                                             & playerLens . dealWons %~ (+1)
+                                             & isElderToPlay .~ (game ^. playerLens . isElder) 
+                                   else game
+                                             & inactivePlayer . dealWons %~ (+1)
+                                             & isElderToPlay .~ (game ^. inactivePlayer . isElder) 
 
 
+checkLastTrick :: Bool -> Game -> Game
+checkLastTrick activePlayerWon g 
+  | length (g ^. activePlayer . hand) > 0 = g
+  | activePlayerWon                          = g & addPlayerMove   activePlayer WinLastTrick & finishCards
+  | otherwise                                = g & addPlayerMove inactivePlayer WinLastTrick & finishCards
+  where finishCards g = g & checkPlayPoints & step .~ PlayEnd
+                           
+checkPlayPoints :: Game -> Game
+checkPlayPoints g 
+  | length hand1 /= 0 || length hand2 /= 0 || won1 == won2 = g
+  | min won1 won2 == 0 = g & addPlayerMove (if won1 > won2 then player1 else player2) Capot
+  | otherwise          = g & addPlayerMove (if won1 > won2 then player1 else player2) WinCards
+  -- | otherwise          = g & addPlayerMove (if won1 > won2 then player1 else player2) WinCards
+  where hand1 = g ^. player1 . hand
+        hand2 = g ^. player2 . hand
+        won1  = g ^. player1 . dealWons
+        won2  = g ^. player2 . dealWons
+        -- winnerLens = if won1 > won2 then player1 else player2
 
-  aHand <- use $ activePlayer . hand
-  when ( card `member` aHand ) $ do
-    game <- get
-    pSock <- use $ activePlayer . sockHandle
-    display $ "played = " ++ show card
-    activePlayer . hand %= delete card
-    case (game ^. inactivePlayer . cardPlayed) of
-      Nothing -> do -- First to play in the turn
-        activePlayer . cardPlayed .= Just card
-        addDealPointsAction activePlayer 1
-        isElderToPlay %= not
-      Just opponentCard -> do -- Second to play in the turn
-        let activePlayerWon = (suit card == suit opponentCard && rank card > rank opponentCard)
-        when activePlayerWon $ addDealPointsAction activePlayer 1 
-        if activePlayerWon then finishTurn activePlayer inactivePlayer else finishTurn inactivePlayer activePlayer 
-        when (length (game ^. activePlayer . hand) == 0) $ do -- this is the last turn 
-           addDealPointsAction (if activePlayerWon then activePlayer else inactivePlayer) 1 -- an additional point for the winner
-           step .= PlayEnd
-        activePlayer   . cardPlayed .= Nothing
-        inactivePlayer . cardPlayed .= Nothing
-
-checkLastTrick :: Either PiquetError Game -> Either PiquetError Game
-checkLastTrick (Left e)  = Left e
-checkLastTrick (Right g) = if g ^. step == PlayEnd then g else g
-
-checkCarteRouge :: Lens' Game Player -> Maybe Combination -> GameAction
-checkCarteRouge playerLens maybeCombination = do
-  pSock <- use (playerLens . sockHandle) 
-  leftRouge <- use (playerLens . leftUntilCarteRouge) 
-  -- Check only if Carte Rouge has not already been declared
-  when (size leftRouge > 0) $ do
-    let leftAfterCombination =  maybe leftRouge (leftRouge \\) (cards <$> maybeCombination) 
-    (playerLens . leftUntilCarteRouge) .= leftAfterCombination
-    lift $ hPutStrLn pSock $ "left until Carte rouge :" ++ show leftAfterCombination
-    when (size leftAfterCombination == 0 ) $ do
-      display "[] Carte rouge -> +20"
-      addDealPointsAction playerLens 20
+                      
+-- checkCarteRouge :: Lens' Game Player -> Maybe Combination -> GameAction
+-- checkCarteRouge playerLens maybeCombination = do
+--   pSock <- use (playerLens . sockHandle) 
+--   leftRouge <- use (playerLens . leftUntilCarteRouge) 
+--   -- Check only if Carte Rouge has not already been declared
+--   when (size leftRouge > 0) $ do
+--     let leftAfterCombination =  maybe leftRouge (leftRouge \\) (cards <$> maybeCombination) 
+--     (playerLens . leftUntilCarteRouge) .= leftAfterCombination
+--     lift $ hPutStrLn pSock $ "left until Carte rouge :" ++ show leftAfterCombination
+--     when (size leftAfterCombination == 0 ) $ do
+--       display "[] Carte rouge -> +20"
+--       addDealPointsAction playerLens 20
 
 addPlayerMove :: Lens' Game Player -> PlayerMove -> Game -> Game
 addPlayerMove playerLens move game = game'' where
-  mbPiquetMove = maybePiquetMove playerLens (movePoints move) game  -- is there a pique or repique ?
+  mbPiquetMove = maybePiquetMove playerLens move game  -- is there a pique or repique ?
   game'  = addPlayerMoveSimple playerLens game move  -- add points for the move
   game'' = maybe game' (addPlayerMoveSimple playerLens game') mbPiquetMove -- maybe add points for the pique/repique
 
@@ -394,16 +406,18 @@ addPlayerMoveSimple playerLens game pmove =
   where points = movePoints pmove
         move   = moveByPlayer playerLens game pmove
 
-maybePiquetMove :: Lens' Game Player -> Int -> Game -> Maybe PlayerMove
-maybePiquetMove playerLens points game = maybeMove where
+maybePiquetMove :: Lens' Game Player -> PlayerMove -> Game -> Maybe PlayerMove
+maybePiquetMove playerLens move game = maybeMove where
   gameStep       = game ^. step
   pointsBefore   = game ^. (playerLens . dealPoints) 
   opponentPoints = game ^. (getOpponentLens playerLens . dealPoints)
   maybeMove
-    | (pointsBefore + points) >= 30 || 30 > pointsBefore = Nothing -- not over 30, or not the first time
-    | (gameStep < PlayCards && opponentPoints <= 1)      = Just Repique
-    | (gameStep >= PlayCards && opponentPoints == 0)     = Just Pique
-    | otherwise                                          = Nothing
+    | 30 <= pointsBefore                             = Nothing -- not the first time over 30
+    | (pointsBefore + movePoints move) < 30          = Nothing -- not over 30
+    | move == Capot                                  = Nothing -- capot don't count for piquet
+    | (gameStep < PlayCards && opponentPoints <= 1)  = Just Repique
+    | (gameStep >= PlayCards && opponentPoints == 0) = Just Pique
+    | otherwise                                      = Nothing
 
 -- addDealPointsAction :: Lens' Game Player -> Int -> GameAction
 -- addDealPointsAction playerLens points = do
@@ -421,37 +435,6 @@ maybePiquetMove playerLens points game = maybeMove where
 --              display "[] PIQUE -> +30" 
 --              playerLens . dealPoints %= (+ 30 )
 
-checkPlayPoints :: Game -> Game
-checkPlayPoints g 
-  | length hand1 /= 0 || length hand2 /= 0 || won1 == won2 = g
-  | min won1 won2 == 0 = g & winnerLens . dealPoints %~ (+40) -- Capot, do not count for pique
-  | otherwise          = g & addDealPoints (if won1 > won2 then player1 else player2) 10
-  where hand1 = g ^. player1 . hand
-        hand2 = g ^. player2 . hand
-        won1  = g ^. player1 . dealWons
-        won2  = g ^. player2 . dealWons
-        winnerLens = if won1 > won2 then player1 else player2
-
-addDealPoints :: Lens' Game Player -> Int -> Game -> Game
-addDealPoints playerLens points g 
-  | pointsBefore >= 30 || 30 > (pointsBefore + points)) = game
-   -- first time player go over 30 points
-  | gameStep < PlayCards && opponentPoints <= 1 = game & playerLens . dealPoints %~ (+60)
-  | gameStep < PlayCards                        = game
-  where gameStep       = g ^. step 
-        opponentPoints = g ^. getOpponentLens playerLens . dealPoints
-        pointsBefore   = g ^. playerLens . dealPoints
-        game           = g & playerLens . dealPoints %~ (+ points)
-
-  when (pointsBefore < 30 && 30 <= (pointsBefore + points)) $  -- first time player go over 30 points
-    if gameStep < PlayCards
-       then when (opponentPoints <= 1) $ do
-             display "[] REPIQUE -> +60" 
-             playerLens . dealPoints %= (+ 60 )
-       else when (opponentPoints == 0) $ do
-             display "[] PIQUE -> +30" 
-             playerLens . dealPoints %= (+ 30 )
-
 -- checkPlayPointsAction :: GameAction
 -- checkPlayPointsAction = do
 --   hand1 <- use $ player1 . hand
@@ -467,45 +450,45 @@ addDealPoints playerLens points g
 --            addDealPointsAction (if won1 > won2 then player1 else player2) 10
            -- addDealPointsAction winnerLens 10
 
-setCombinationPointsAction :: DeclarationWinner -> CombinationType -> GameAction
-setCombinationPointsAction decPlayer combinationType = do
-  game <- get
-  when (game ^. getWinnerLens combinationType == decPlayer) $ do
-    -- add points for winning combination
-    let winnerLens dc = bool younger elder (dc == Elder)
-    maybeWinComb <- use (getCombinationLens combinationType)
-    addDealPointsAction (winnerLens decPlayer) ( maybe 0 getCombinationPoints maybeWinComb )
-    checkCarteRouge (winnerLens decPlayer) maybeWinComb 
-    unless (combinationType == Point) $ do
-      -- ask for other smaller combinations of the same type
-      let candidates = getSmallerCombinations maybeWinComb . getCombinations combinationType $ game ^. (winnerLens decPlayer) . hand
-      when (candidates /= []) $ do
-        let winnerSock = (game ^. (winnerLens decPlayer) . sockHandle)
-        lift $ hPutStrLn winnerSock $ "-> " ++ show decPlayer ++ " other " ++ show combinationType ++ " combinations : " ++ show candidates
-        strOthers <- lift $ liftM (filter (/= '\r')) $ hGetLine winnerSock
-        let others = (candidates !!) . read <$> splitOn "," strOthers
-        sequence_ $ (display . (("[" ++ show decPlayer ++ "] ") ++) . showDeclarationComplete) <$> others -- show combination
-        sequence_ $ (addDealPointsAction (winnerLens decPlayer) . getCombinationPoints) <$> others  -- add points 
-        sequence_ $ checkCarteRouge (winnerLens decPlayer) . Just <$> others 
+-- setCombinationPointsAction :: DeclarationWinner -> CombinationType -> GameAction
+-- setCombinationPointsAction decPlayer combinationType = do
+--   game <- get
+--   when (game ^. getWinnerLens combinationType == decPlayer) $ do
+--     -- add points for winning combination
+--     let winnerLens dc = bool younger elder (dc == Elder)
+--     maybeWinComb <- use (getCombinationLens combinationType)
+--     addDealPointsAction (winnerLens decPlayer) ( maybe 0 getCombinationPoints maybeWinComb )
+--     checkCarteRouge (winnerLens decPlayer) maybeWinComb 
+--     unless (combinationType == Point) $ do
+--       -- ask for other smaller combinations of the same type
+--       let candidates = getSmallerCombinations maybeWinComb . getCombinations combinationType $ game ^. (winnerLens decPlayer) . hand
+--       when (candidates /= []) $ do
+--         let winnerSock = (game ^. (winnerLens decPlayer) . sockHandle)
+--         lift $ hPutStrLn winnerSock $ "-> " ++ show decPlayer ++ " other " ++ show combinationType ++ " combinations : " ++ show candidates
+--         strOthers <- lift $ liftM (filter (/= '\r')) $ hGetLine winnerSock
+--         let others = (candidates !!) . read <$> splitOn "," strOthers
+--         sequence_ $ (display . (("[" ++ show decPlayer ++ "] ") ++) . showDeclarationComplete) <$> others -- show combination
+--         sequence_ $ (addDealPointsAction (winnerLens decPlayer) . getCombinationPoints) <$> others  -- add points 
+--         sequence_ $ checkCarteRouge (winnerLens decPlayer) . Just <$> others 
 
-setCombinationElderPoints :: CombinationType -> GameAction
-setCombinationElderPoints Point           = return ()
-setCombinationElderPoints combinationType = do
-  game <- get
-  when (game ^. getWinnerLens combinationType == Elder) $ do
-    -- add points for winning combination
-    maybeWinComb <- use (getCombinationLens combinationType)
-    addDealPointsAction elder ( maybe 0 getCombinationPoints maybeWinComb )
-    checkCarteRouge elder maybeWinComb 
-    -- ask for other smaller combinations of the same type
-    let candidates = getSmallerCombinations maybeWinComb . getCombinations combinationType $ game ^. elder . hand
-    when (candidates /= []) $ do
-      lift $ hPutStrLn (game ^. elder . sockHandle) $ "-> Elder other " ++ show combinationType ++ " combinations : " ++ show candidates
-      strOthers <- lift getLine
-      let others = (candidates !!) . read <$> splitOn "," strOthers
-      sequence_ $ (display . ("[Elder] " ++) . showDeclarationComplete) <$> others -- show combination
-      sequence_ $ (addDealPointsAction elder . getCombinationPoints) <$> others  -- add points 
-      sequence_ $ checkCarteRouge elder . Just <$> others 
+-- setCombinationElderPoints :: CombinationType -> GameAction
+-- setCombinationElderPoints Point           = return ()
+-- setCombinationElderPoints combinationType = do
+--   game <- get
+--   when (game ^. getWinnerLens combinationType == Elder) $ do
+--     -- add points for winning combination
+--     maybeWinComb <- use (getCombinationLens combinationType)
+--     addDealPointsAction elder ( maybe 0 getCombinationPoints maybeWinComb )
+--     checkCarteRouge elder maybeWinComb 
+--     -- ask for other smaller combinations of the same type
+--     let candidates = getSmallerCombinations maybeWinComb . getCombinations combinationType $ game ^. elder . hand
+--     when (candidates /= []) $ do
+--       lift $ hPutStrLn (game ^. elder . sockHandle) $ "-> Elder other " ++ show combinationType ++ " combinations : " ++ show candidates
+--       strOthers <- lift getLine
+--       let others = (candidates !!) . read <$> splitOn "," strOthers
+--       sequence_ $ (display . ("[Elder] " ++) . showDeclarationComplete) <$> others -- show combination
+--       sequence_ $ (addDealPointsAction elder . getCombinationPoints) <$> others  -- add points 
+--       sequence_ $ checkCarteRouge elder . Just <$> others 
 
 -- XXX to use in Client
 getResponseChoices :: Maybe Combination -> [Combination] -> [(DeclarationResponse, Maybe Combination)]
@@ -542,55 +525,55 @@ getDeclarationWinner ds (Just cEld) (Just d@(Equals, Just cYoung)) =
 -- playFirstCard :: GameAction
 -- playFirstCard = use activePlayer >>= lift . chooseCard >>= playCardAction
 
-playCards :: GameAction
-playCards = do
-  use activePlayer >>= lift . chooseCard >>= playCardAction
-  use step <&> ( == PlayEnd ) >>= bool playCards checkPlayPoints
+-- playCards :: GameAction
+-- playCards = do
+--   use activePlayer >>= lift . chooseCard >>= playCardAction
+--   use step <&> ( == PlayEnd ) >>= bool playCards checkPlayPoints
 
-chooseCard :: Player -> IO Card
-chooseCard player = do
-  let pSock = player ^. sockHandle
-      cards = toList ( player ^. hand )
-  hPutStrLn pSock $ "Choose a card to play : " ++ show cards
-  choice <- liftM (filter (/= '\r')) $ hGetLine pSock
-  -- let maybeChoice = join $ (cards ^?) <$> ix <$> readMaybe choice
-  let maybeChoice = join $ (cards ^?) <$> element <$> readMaybe choice
-  case maybeChoice of
-    Nothing -> do
-      hPutStrLn pSock "Bad choice"
-      chooseCard player
-    Just card -> return card
+-- chooseCard :: Player -> IO Card
+-- chooseCard player = do
+--   let pSock = player ^. sockHandle
+--       cards = toList ( player ^. hand )
+--   hPutStrLn pSock $ "Choose a card to play : " ++ show cards
+--   choice <- liftM (filter (/= '\r')) $ hGetLine pSock
+--   -- let maybeChoice = join $ (cards ^?) <$> ix <$> readMaybe choice
+--   let maybeChoice = join $ (cards ^?) <$> element <$> readMaybe choice
+--   case maybeChoice of
+--     Nothing -> do
+--       hPutStrLn pSock "Bad choice"
+--       chooseCard player
+--     Just card -> return card
 
-playCardAction :: Card -> GameAction
-playCardAction card = do
-  aHand <- use $ activePlayer . hand
-  when ( card `member` aHand ) $ do
-    game <- get
-    pSock <- use $ activePlayer . sockHandle
-    display $ "played = " ++ show card
-    activePlayer . hand %= delete card
-    case (game ^. inactivePlayer . cardPlayed) of
-      Nothing -> do -- First to play in the turn
-        activePlayer . cardPlayed .= Just card
-        addDealPointsAction activePlayer 1
-        isElderToPlay %= not
-      Just opponentCard -> do -- Second to play in the turn
-        let activePlayerWon = (suit card == suit opponentCard && rank card > rank opponentCard)
-        when activePlayerWon $ addDealPointsAction activePlayer 1 
-        if activePlayerWon then finishTurn activePlayer inactivePlayer else finishTurn inactivePlayer activePlayer 
-        when (length (game ^. activePlayer . hand) == 0) $ do -- this is the last turn 
-           addDealPointsAction (if activePlayerWon then activePlayer else inactivePlayer) 1 -- an additional point for the winner
-           step .= PlayEnd
-        activePlayer   . cardPlayed .= Nothing
-        inactivePlayer . cardPlayed .= Nothing
-
-finishTurn :: Lens' Game Player -> Lens' Game Player -> GameAction
-finishTurn winnerLens looserLens = do
-  game <- get
-  lift $ hPutStrLn (game ^. winnerLens . sockHandle ) " you won "
-  lift $ hPutStrLn (game ^. looserLens . sockHandle ) " you lost "
-  winnerLens . dealWons %= (+1)
-  isElderToPlay .= (game ^. winnerLens . isElder) 
+-- playCardAction :: Card -> GameAction
+-- playCardAction card = do
+--   aHand <- use $ activePlayer . hand
+--   when ( card `member` aHand ) $ do
+--     game <- get
+--     pSock <- use $ activePlayer . sockHandle
+--     display $ "played = " ++ show card
+--     activePlayer . hand %= delete card
+--     case (game ^. inactivePlayer . cardPlayed) of
+--       Nothing -> do -- First to play in the turn
+--         activePlayer . cardPlayed .= Just card
+--         addDealPointsAction activePlayer 1
+--         isElderToPlay %= not
+--       Just opponentCard -> do -- Second to play in the turn
+--         let activePlayerWon = (suit card == suit opponentCard && rank card > rank opponentCard)
+--         when activePlayerWon $ addDealPointsAction activePlayer 1 
+--         if activePlayerWon then finishTurn activePlayer inactivePlayer else finishTurn inactivePlayer activePlayer 
+--         when (length (game ^. activePlayer . hand) == 0) $ do -- this is the last turn 
+--            addDealPointsAction (if activePlayerWon then activePlayer else inactivePlayer) 1 -- an additional point for the winner
+--            step .= PlayEnd
+--         activePlayer   . cardPlayed .= Nothing
+--         inactivePlayer . cardPlayed .= Nothing
+--
+-- finishTurn :: Lens' Game Player -> Lens' Game Player -> GameAction
+-- finishTurn winnerLens looserLens = do
+--   game <- get
+--   lift $ hPutStrLn (game ^. winnerLens . sockHandle ) " you won "
+--   lift $ hPutStrLn (game ^. looserLens . sockHandle ) " you lost "
+--   winnerLens . dealWons %= (+1)
+--   isElderToPlay .= (game ^. winnerLens . isElder) 
 
 nextDealNum :: Deal -> Deal
 nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN
