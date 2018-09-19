@@ -110,6 +110,7 @@ data DeclarationWinner = Elder | Younger | Tie | Nobody deriving (Eq, Show)
 data Game = Game { _stdGen              :: StdGen
                  , _dealNum             :: Deal
                  , _dealMoves           :: [(Move, Int)]
+                 , _deals               :: [(Deal, [(Move, Int)])]
                  , _deck                :: Deck
                  , _visible             :: Deck
                  , _step                :: Step

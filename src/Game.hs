@@ -112,6 +112,7 @@ mkInitialState stdGen = Game
   { _stdGen = newStdGen
   , _dealNum = One
   , _dealMoves = []
+  , _deals = []
   , _deck = shuffledDeck
   , _visible = fromList []
   , _step = Start
@@ -168,6 +169,7 @@ deal g =
         & deck                          .~ stock
         & dealMoves                     .~ []
         & step                          .~ succ Deal
+
 
 type GameAction = StateT Game IO ()
 
@@ -365,7 +367,17 @@ checkLastTrick activePlayerWon g
   | length (g ^. activePlayer . hand) > 0 = g
   | activePlayerWon                          = g & addPlayerMove   activePlayer WinLastTrick & finishCards
   | otherwise                                = g & addPlayerMove inactivePlayer WinLastTrick & finishCards
-  where finishCards g = g & checkPlayPoints & step .~ PlayEnd
+  where finishCards g = g & checkPlayPoints 
+                          & step .~ PlayEnd
+                          & checkEndGame
+
+checkEndGame :: Game -> Game
+checkEndGame g 
+  | g ^. step /= PlayEnd     = g
+  | g ^. dealNum == maxBound = g & step .~ End
+  | otherwise                = g & nextDeal
+                                 & step .~ Deal
+                                 & deal
                            
 checkPlayPoints :: Game -> Game
 checkPlayPoints g 
@@ -380,6 +392,15 @@ checkPlayPoints g
         -- winnerLens = if won1 > won2 then player1 else player2
 
                       
+nextDeal :: Game -> Game
+nextDeal game = game & deals %~ ((game ^. dealNum, game ^. dealMoves ):)
+                     & dealNum %~ nextDealNum
+                     & (player1 . isElder) %~ not
+                     & (player2 . isElder) %~ not
+
+nextDealNum :: Deal -> Deal
+nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN
+
 -- checkCarteRouge :: Lens' Game Player -> Maybe Combination -> GameAction
 -- checkCarteRouge playerLens maybeCombination = do
 --   pSock <- use (playerLens . sockHandle) 
@@ -574,10 +595,6 @@ getDeclarationWinner ds (Just cEld) (Just d@(Equals, Just cYoung)) =
 --   lift $ hPutStrLn (game ^. looserLens . sockHandle ) " you lost "
 --   winnerLens . dealWons %= (+1)
 --   isElderToPlay .= (game ^. winnerLens . isElder) 
-
-nextDealNum :: Deal -> Deal
-nextDealNum dealN = if maxBound == dealN then maxBound else succ dealN
--- nextDealNum = liftA2 (`bool` maxBound) succ (maxBound == )
 
 display :: String -> GameAction
 display message = do
