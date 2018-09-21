@@ -127,7 +127,8 @@ acceptClientConnection node txGameMsg txSubscribe pendingConnection = do
       (runStdoutLoggingT $ do
          logInfoN "P: New connection received."
          liftIO $ WS.acceptRequest pendingConnection)
-      (\_ -> putStrLn "P: Leaves")
+      (\_ -> putStrLn "P: Leaves" )
+  liftIO $ WS.forkPingThread connection 30 -- ping the client every 30s
   liftIO . runProcess node $ do
     (txToPlayer, rxFromBroadcaster) <- newChan
     let disconnectHandler :: WS.ConnectionException -> Process ()

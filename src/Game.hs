@@ -315,7 +315,7 @@ checkPlayPoints g
   | length hand1 /= 0 || length hand2 /= 0 || won1 == won2 = g
   | min won1 won2 == 0 = g & addPlayerMove (if won1 > won2 then player1 else player2) Capot
   | otherwise          = g & addPlayerMove (if won1 > won2 then player1 else player2) WinCards
-  -- | otherwise          = g & addPlayerMove (if won1 > won2 then player1 else player2) WinCards
+  --  otherwise          = g & addPlayerMove (if won1 > won2 then player1 else player2) WinCards
   where hand1 = g ^. player1 . hand
         hand2 = g ^. player2 . hand
         won1  = g ^. player1 . dealWons
