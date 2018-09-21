@@ -43,9 +43,11 @@ handlePlayerMsg _                         spid = const $ Left UnknownCommand
 
 viewG :: Either (PiquetError, String) Game -> GameStateMsg
 viewG (Left err) = Left err
-viewG (Right g) = Right ( ViewGame { viewGame = g ^. step
-                     , viewSampleCommands = [ChangeName (pack "Kris")]
-                     }
+viewG (Right g) = Right ( ViewGame { viewStep = g ^. step
+                                   , viewDealMoves = g ^. dealMoves
+                                   , viewDeals = g ^. deals
+                                   , viewSampleCommands = [ChangeName (pack "Kris")]
+                                   }
           , [ ViewPlayer { playerName       = g ^. player1 . name
                          , playerPoints     = g ^. player1 . dealPoints
                          , playerHand       = g ^. player1 . hand

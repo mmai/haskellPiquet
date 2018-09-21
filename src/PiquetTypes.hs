@@ -15,7 +15,7 @@ import System.IO (Handle) -- TODO remove
 import Cards
 import Combinations
 
-data Deal = One | Two | Three | Four | Five | Six deriving (Bounded, Eq, Enum, Show)
+data Deal = One | Two | Three | Four | Five | Six deriving (Bounded, Eq, Enum, Show, Generic, Binary, ToJSON, FromJSON)
 
 data Step = Start 
           | Deal

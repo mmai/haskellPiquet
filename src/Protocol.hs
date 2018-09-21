@@ -26,9 +26,11 @@ data Msg = Exchange Hand
          deriving (Show, Eq, Binary, Generic, FromJSON, ToJSON)
 
 
-data ViewGame = ViewGame { viewGame :: Step
-                 , viewSampleCommands :: [Msg]
-                 } deriving (Show, Eq, Binary, Generic)
+data ViewGame = ViewGame { viewStep :: Step
+                         , viewDealMoves :: [(Move, Int)]
+                         , viewDeals :: [(Deal, [(Move, Int)])]
+                         , viewSampleCommands :: [Msg]
+                         } deriving (Show, Eq, Binary, Generic)
 
 data ViewPlayer = ViewPlayer { playerSendPortId :: String 
                              , playerName :: String
