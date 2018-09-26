@@ -2,9 +2,13 @@ docs:
 	stack haddock --open
 	stack hoogle -- generate --local
 	stack hoogle -- server --local --port=8080
+configure:
+	# nix-shell --attr env release0.nix --run 'cabal configure'
+	nix-shell --run 'cabal configure'
 build:
-	# For release, remove the --fast option
-	stack build --fast --haddock-deps --copy-bins --file-watch
+	nix-shell --run 'cabal build'
+ghcversion:
+	nix-instantiate --eval --expr '(import <nixpkgs> { }).ghc.version'
 tests:
 	stack test --file-watch
 run:
