@@ -11,6 +11,8 @@ module Network.GameEngine where
 -- import           Control.Distributed.Process.Node
 -- import           Control.Distributed.Process.Serializable
 import           Control.Concurrent.Chan
+import           Control.Concurrent (forkIO)
+import           Control.Monad.Trans (liftIO, lift)
 
 import qualified Control.Exception                        as Ex
 import           Control.Monad
@@ -20,12 +22,14 @@ import           Control.Monad.State                      (evalStateT)
 import qualified Control.Monad.State                      as State
 import           Control.Monad.Trans.Resource             (MonadResource,
                                                            allocate,
-                                                           runResourceT)
+                                                           runResourceT,
+                                                          ReleaseKey)
 import           Data.Aeson                               (FromJSON, ToJSON)
 import qualified Data.Aeson                               as Aeson
 import           Data.Binary
 import           Data.Either
 import           Data.Foldable
+import           Data.Map
 import           Data.Monoid
 import qualified Data.Set                                 as Set
 import           Data.Time
@@ -40,15 +44,16 @@ import           Network.Wai.Handler.WebSockets
 import qualified Network.WebSockets                       as WS
 
 type PlayerId = Int
+type PlayersChansMap msg = Map PlayerId (Chan (EngineMsg msg))
 
 data EngineMsg msg = Join PlayerId
                    | Leave PlayerId
                    | GameMsg PlayerId msg
-                   deriving (Show, Eq, Binary, Generic)
+                   deriving (Show, Eq, Binary, Generic, ToJSON, FromJSON)
 
 data PubSubMsg view = Sub PlayerId
                     | Unsub PlayerId
-                    deriving (Show, Eq, Binary, Generic)
+                    deriving (Show, Eq, Binary, Generic, ToJSON, FromJSON)
 
 type SocketMsgView err gameView playerView = (Either (err, String) (gameView, [playerView]))
 type SocketMsgGame err state = (Either (err, String) state)
@@ -85,35 +90,27 @@ runGame
   -> ( EngineMsg msg -> state -> SocketMsgGame err state ) 
   -> ( SocketMsgGame err state -> SocketMsgView err gameView playerView ) 
   -> IO ()
-runGame initialGameState update view =
+runGame initialGameState update view = do
   let settings = Warp.setHost "*" . Warp.setPort 8000 $ Warp.defaultSettings
-  in runStdoutLoggingT $ do
+      playersMap = empty
+  runStdoutLoggingT $ do
        logInfoN "START"
        -- backend <- liftIO createTransport
        -- node <- liftIO $ newLocalNode backend initRemoteTable
-       logInfoN $
-         sformat
-           ("Starting listener with settings: " % F.string % ":" % F.int)
-           (show $ Warp.getHost settings)
-           (Warp.getPort settings)
-       _ <-
-         -- liftIO . runProcess node $ do
-          do
-           -- One channel for each data type to transmit
-           (txSubscription, rxSubscription) <- newChan
-           (txGameView, rxGameView) <- newChan
-           (gameMsgChan, rxGameMsg) <- newChan
-           -- _ <- spawnLocal $ broadcaster rxGameView rxSubscription 
-           -- _ <- spawnLocal $ gameProcess rxGameMsg txGameView update view initialGameState
-           _ <- forkIO $ broadcaster rxGameView rxSubscription 
-           _ <- forkIO $ gameProcess rxGameMsg txGameView update view initialGameState
-           liftIO . Warp.runSettings settings $
-             websocketsOr
-               WS.defaultConnectionOptions
-               (runResourceT .  acceptClientConnection gameMsgChan txSubscription)
-               -- (runResourceT .  acceptClientConnection node txGameMsg txSubscription)
-               (staticApp $ defaultFileServerSettings "../client/dist") -- TODO : serveur appli web  ??
-       logInfoN "END"
+       logInfoN $ sformat ("Starting listener with settings: " % F.string % ":" % F.int) (show $ Warp.getHost settings) (Warp.getPort settings)
+   -- One channel for each data type to transmit
+  subscriptionChan <- newChan
+  gameViewChan <- newChan
+  gameMsgChan <- newChan
+  _ <- forkIO $ gameViewBroadcaster gameViewChan
+  _ <- forkIO $ subscriptionBroadcaster subscriptionChan
+  _ <- forkIO $ gameProcess gameMsgChan gameViewChan update view initialGameState
+  Warp.runSettings settings $ websocketsOr
+       WS.defaultConnectionOptions
+       (runResourceT .  (flip State.evalStateT playersMap) . acceptClientConnection gameMsgChan subscriptionChan )
+       -- (runResourceT .  acceptClientConnection node txGameMsg txSubscription)
+       (staticApp $ defaultFileServerSettings "../client/dist") -- TODO : serveur appli web  ??
+  runStdoutLoggingT $ logInfoN "END"
 
 acceptClientConnection
   :: ( MonadResource m
@@ -124,49 +121,73 @@ acceptClientConnection
      , Show view
      , Show msg
      )
-  -- => LocalNode
-  -- -> SendPort (EngineMsg msg)
   => Chan (EngineMsg msg)
   -> Chan (PubSubMsg view)
   -> WS.PendingConnection
-  -> m ()
+  -> State.StateT (PlayersChansMap msg) m ()
 acceptClientConnection gameMsgChan subscribeChan pendingConnection = do
--- acceptClientConnection node txGameMsg txSubscribe pendingConnection = do
-  (_releaseKey, connection) <-
-    allocate
-      (runStdoutLoggingT $ do
-         logInfoN "P: New connection received."
-         liftIO $ WS.acceptRequest pendingConnection)
-      (\_ -> putStrLn "P: Leaves" )
+  (_releaseKey, connection) <- lift $ allocate
+        (runStdoutLoggingT $ do
+           logInfoN "P: New connection received."
+           liftIO $ WS.acceptRequest pendingConnection)
+        (\_ -> putStrLn "P: Leaves" )
   liftIO $ WS.forkPingThread connection 30 -- ping the client every 30s
-  -- liftIO . runProcess node $ do
-  do
-    -- (txToPlayer, rxFromBroadcaster) <- newChan
-    broacasterToPlayerChan <- newChan
-    let disconnectHandler :: WS.ConnectionException -> IO ()
-        disconnectHandler ex = do
-          liftIO . putStrLn $ "P: Socket has closed. Unsubscribing: " <> show ex
-          writeChan subscribeChan (Unsub broacasterToPlayerChan)
-          writeChan gameMsgChan $ Leave (getPlayerId broacasterToPlayerChan)
-    _ <- spawnLocal $ receiveFromPlayer broacasterToPlayerChan gameMsgChan disconnectHandler connection
-    -- _ <- spawnLocal $ receiveFromPlayer txToPlayer txGameMsg disconnectHandler connection
-    sendChan txSubscribe (Sub broacasterToPlayerChan)  -- record subscription
-    -- sendChan gameMsgChan $ Join (sendPortId txToPlayer) -- add new player to game
-    sendChan gameMsgChan $ Join playerId -- add new player to game
-    announceToPlayer connection rxFromBroadcaster disconnectHandler
+  playersMap <- State.get
+  let playerId = getNextPlayerId playersMap
+  broacasterToPlayerChan <- liftIO newChan
+  let playersMap' = insert playerId broacasterToPlayerChan playersMap
+  State.put playersMap'
+  let disconnectHandler :: WS.ConnectionException -> IO ()
+      disconnectHandler ex = do
+        liftIO . putStrLn $ "P: Socket has closed. Unsubscribing: " <> show ex
+        writeChan subscribeChan $ Unsub playerId 
+        writeChan gameMsgChan $ Leave playerId
+  liftIO $ do
+    _ <- forkIO $ receiveFromPlayer playerId gameMsgChan disconnectHandler connection
+    writeChan subscribeChan $ Sub playerId  -- record subscription
+    writeChan gameMsgChan $ Join playerId -- add new player to game
+    announceToPlayer connection broacasterToPlayerChan disconnectHandler
+
+subscriptionBroadcaster
+  :: (Show err, Binary err, Show gameView, Binary gameView, Show playerView, Binary playerView, TaggedView playerView)
+  => Chan (SocketMsgView err gameView playerView) -> IO ()
+subscriptionBroadcaster subscriptionRequests = iterateM_ handle Set.empty
+  where
+    handle subscribers = do
+      liftIO . putStrLn $ "B: Subscribers: " <> show subscribers
+      msg <- readChan subscriptionRequests
+      case msg of
+        Sub subscriber -> do
+          liftIO . putStrLn $ "B: adding: " <> show subscriber
+          return (Set.insert subscriber subscribers)
+        Unsub subscriber -> do
+          liftIO . putStrLn $ "B: removing: " <> show subscriber
+          return (Set.delete subscriber subscribers)
+
+
+getNextPlayerId :: PlayersChansMap msg -> PlayerId
+getNextPlayerId = (+1) . size
+
+-- getPlayerId :: PlayersChansMap msg -> Chan (EnginMsg msg) -> Maybe PlayerId
+-- getPlayerId playersMap chan 
+--   | chan `Bitmap.notMemberR` playersMap = Nothing
+--   | otherwise                           = Just $ Bitmap.(!>) playersMap chan
+
+-- getPlayerId :: PlayersChansMap msg -> Chan (EnginMsg msg) -> PlayerId
+-- getPlayerId = Bitmap.(!>) 
 
 ------------------------------------------------------------
 -- Player
 ------------------------------------------------------------
 -- TODO This process could do with some refactoring. The walking-cases are a bad sign.
 receiveFromPlayer
-  :: (Binary msg, Binary view, Show msg, Show view, FromJSON msg)
-  => Chan view
+  :: (Binary msg, Show msg, FromJSON msg)
+  => PlayerId
   -> Chan (EngineMsg msg)
   -> (WS.ConnectionException -> IO ())
   -> WS.Connection
   -> IO ()
-receiveFromPlayer txToPlayer gameMsgChan disconnectHandler connection = do
+receiveFromPlayer playerId gameMsgChan disconnectHandler connection = do
   liftIO $ putStrLn "P: LISTENING"
   handle Nothing
   where
@@ -187,12 +208,12 @@ receiveFromPlayer txToPlayer gameMsgChan disconnectHandler connection = do
               now <- liftIO getCurrentTime
               case lastMessageHandled of
                 Nothing -> do
-                  sendChan gameMsgChan $ GameMsg (sendPortId txToPlayer) msg
+                  writeChan gameMsgChan $ GameMsg playerId msg
                   handle (Just now)
                 Just t ->
                   if addUTCTime timeBetweenPlayerCommands t < now
                     then do
-                      sendChan gameMsgChan $ GameMsg (sendPortId txToPlayer) msg
+                      writeChan gameMsgChan $ GameMsg playerId msg
                       handle (Just now)
                     else handle lastMessageHandled
 
@@ -233,49 +254,42 @@ announceToPlayer -- used for disconnecting websocket (?)
 announceToPlayer connection rx disconnectHandler = handle
   where
     handle = do
-      msg <- receiveChan rx
+      msg <- readChan rx
       sent <- liftIO . Ex.try . WS.sendTextData connection $ Aeson.encode msg
       case sent of
         Left ex -> disconnectHandler ex
         Right _ -> handle
 
 ------------------------------------------------------------
--- Broadcaster
+-- Broadcasters
 ------------------------------------------------------------
-broadcaster
+gameViewBroadcaster
   :: (Show err, Binary err, Show gameView, Binary gameView, Show playerView, Binary playerView, TaggedView playerView)
-  => Chan (SocketMsgView err gameView playerView) -> Chan (PubSubMsg (SocketMsgView err gameView playerView)) -> IO ()
-broadcaster inboundGame subscriptionRequests = iterateM_ handle Set.empty
+  => Chan (SocketMsgView err gameView playerView) -> IO ()
+gameViewBroadcaster inboundGame = iterateM_ handle Set.empty
   where
     handle subscribers = do
       liftIO . putStrLn $ "B: Subscribers: " <> show subscribers
-      mergedPorts <-
-        mergePortsBiased [Left <$> subscriptionRequests, Right <$> inboundGame]
-      msg <- receiveChan mergedPorts
+      msg <- readChan inboundGame
       case msg of
-        Left (Sub subscriber) -> do
-          liftIO . putStrLn $ "B: adding: " <> show subscriber
-          return (Set.insert subscriber subscribers)
-        Left (Unsub subscriber) -> do
-          liftIO . putStrLn $ "B: removing: " <> show subscriber
-          return (Set.delete subscriber subscribers)
-        -- Right state@(gameView, [p1View, p2View]) -> do
-        Right (Left e) -> do
+        Left e@(err, playerId) -> do
           liftIO . putStrLn $ "B: error: " <> show e
-          traverse_ (sendErrorToMatchingPort e ) $ Set.toList subscribers
+          let playerChan = ! playerId
+          -- traverse_ (sendErrorToMatchingPort e ) $ Set.toList subscribers
+          
           return subscribers
-        Right (Right state) -> do
+        Right state -> do
           liftIO . putStrLn $ "B: Broadcasting: " <> show state <> " to: " <> show subscribers
           -- traverse_ (`sendChan` state) $ Set.toList subscribers
           traverse_ (sendFilteredToMatchingPort state ) $ Set.toList subscribers
           return subscribers
 
-sendErrorToMatchingPort 
-  :: (Show err, Binary err, Show gameView, Binary gameView, Show playerView, Binary playerView, TaggedView playerView)
-  => (err, String) -> Chan (SocketMsgView err gameView playerView) -> IO ()
-sendErrorToMatchingPort (e, portId) subscriber
-  | portId == show (sendPortId subscriber) = sendChan subscriber (Left (e, portId))
-  | otherwise                              = return ()
+-- sendErrorToMatchingPort 
+--   :: (Show err, Binary err, Show gameView, Binary gameView, Show playerView, Binary playerView, TaggedView playerView)
+--   => (err, String) -> Chan (SocketMsgView err gameView playerView) -> IO ()
+-- sendErrorToMatchingPort (e, playerId) subscriber
+--   | playerId == show (sendPortId subscriber) = writeChan subscriber (Left (e, playerId))
+--   | otherwise                              = return ()
 
 
 -- send common info + info related to the player only
@@ -283,8 +297,8 @@ sendFilteredToMatchingPort
   :: (Show err, Binary err, Show gameView, Binary gameView, Show playerView, Binary playerView, TaggedView playerView)
   => (gameView, [playerView]) -> Chan (SocketMsgView err gameView playerView) -> IO ()
 sendFilteredToMatchingPort (common, [p1, p2]) subscriber 
-  | destinationPortId p1 == show (sendPortId subscriber) = sendChan subscriber $ Right (common, [p1])
-  | destinationPortId p2 == show (sendPortId subscriber) = sendChan subscriber $ Right (common, [p2])
+  | destinationPortId p1 == show (sendPortId subscriber) = writeChan subscriber $ Right (common, [p1])
+  | destinationPortId p2 == show (sendPortId subscriber) = writeChan subscriber $ Right (common, [p2])
   | otherwise                                            = return ()
 
 ------------------------------------------------------------
