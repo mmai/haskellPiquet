@@ -44,7 +44,13 @@ import           Network.Wai.Handler.WebSockets
 import qualified Network.WebSockets                       as WS
 
 type PlayerId = Int
-type PlayersChansMap msg = Map PlayerId (Chan (EngineMsg msg))
+type Players  = Map PlayerId Connection
+type RoomId   = Int
+type Rooms    = Map RoomId Players
+
+data NGames = NGames { pending :: Maybe Connection
+                     , running :: Rooms
+                     }
 
 data EngineMsg msg = Join PlayerId
                    | Leave PlayerId
@@ -57,9 +63,6 @@ data PubSubMsg view = Sub PlayerId
 
 type SocketMsgView err gameView playerView = (Either (err, String) (gameView, [playerView]))
 type SocketMsgGame err state = (Either (err, String) state)
-
-timeBetweenPlayerCommands :: NominalDiffTime
-timeBetweenPlayerCommands = 0.1
 
 --------------------------------------------------
 
@@ -92,22 +95,15 @@ runGame
   -> IO ()
 runGame initialGameState update view = do
   let settings = Warp.setHost "*" . Warp.setPort 8000 $ Warp.defaultSettings
-      playersMap = empty
+      nGames = NGames Nothing empty
   runStdoutLoggingT $ do
        logInfoN "START"
        -- backend <- liftIO createTransport
        -- node <- liftIO $ newLocalNode backend initRemoteTable
        logInfoN $ sformat ("Starting listener with settings: " % F.string % ":" % F.int) (show $ Warp.getHost settings) (Warp.getPort settings)
-   -- One channel for each data type to transmit
-  subscriptionChan <- newChan
-  gameViewChan <- newChan
-  gameMsgChan <- newChan
-  _ <- forkIO $ gameViewBroadcaster gameViewChan
-  _ <- forkIO $ subscriptionBroadcaster subscriptionChan
-  _ <- forkIO $ gameProcess gameMsgChan gameViewChan update view initialGameState
   Warp.runSettings settings $ websocketsOr
        WS.defaultConnectionOptions
-       (runResourceT .  (flip State.evalStateT playersMap) . acceptClientConnection gameMsgChan subscriptionChan )
+       (runResourceT .  (flip State.evalStateT nGames) . acceptClientConnection )
        -- (runResourceT .  acceptClientConnection node txGameMsg txSubscription)
        (staticApp $ defaultFileServerSettings "../client/dist") -- TODO : serveur appli web  ??
   runStdoutLoggingT $ logInfoN "END"
@@ -121,18 +117,21 @@ acceptClientConnection
      , Show view
      , Show msg
      )
-  => Chan (EngineMsg msg)
-  -> Chan (PubSubMsg view)
-  -> WS.PendingConnection
-  -> State.StateT (PlayersChansMap msg) m ()
-acceptClientConnection gameMsgChan subscribeChan pendingConnection = do
+  => WS.PendingConnection -> State.StateT (PlayersChansMap msg) m ()
+acceptClientConnection pendingConnection = do
   (_releaseKey, connection) <- lift $ allocate
         (runStdoutLoggingT $ do
            logInfoN "P: New connection received."
            liftIO $ WS.acceptRequest pendingConnection)
         (\_ -> putStrLn "P: Leaves" )
   liftIO $ WS.forkPingThread connection 30 -- ping the client every 30s
-  playersMap <- State.get
+  nGames <- State.get
+  let updatedGames = 
+        case (pending nGames) of
+          Nothing   -> nGames { pending = Just connection }
+          Just pendingConn -> nGames { pending = Nothing 
+                                     , running = appendGame pendingConn connection (running nGames)
+                                     }
   let playerId = getNextPlayerId playersMap
   broacasterToPlayerChan <- liftIO newChan
   let playersMap' = insert playerId broacasterToPlayerChan playersMap
@@ -147,6 +146,13 @@ acceptClientConnection gameMsgChan subscribeChan pendingConnection = do
     writeChan subscribeChan $ Sub playerId  -- record subscription
     writeChan gameMsgChan $ Join playerId -- add new player to game
     announceToPlayer connection broacasterToPlayerChan disconnectHandler
+
+appendGame :: Connection -> Connection -> Rooms -> Rooms
+appendGame c1 c2 rooms = insert (getNextMapId rooms) newGame rooms where
+  newGame = insert 2 c2 $ insert 1 c1 $ empty 
+
+getNextMapId :: Map a -> Int
+getNextMapId = (+1) . size
 
 subscriptionBroadcaster
   :: (Show err, Binary err, Show gameView, Binary gameView, Show playerView, Binary playerView, TaggedView playerView)
@@ -165,9 +171,6 @@ subscriptionBroadcaster subscriptionRequests = iterateM_ handle Set.empty
           return (Set.delete subscriber subscribers)
 
 
-getNextPlayerId :: PlayersChansMap msg -> PlayerId
-getNextPlayerId = (+1) . size
-
 -- getPlayerId :: PlayersChansMap msg -> Chan (EnginMsg msg) -> Maybe PlayerId
 -- getPlayerId playersMap chan 
 --   | chan `Bitmap.notMemberR` playersMap = Nothing
@@ -180,6 +183,9 @@ getNextPlayerId = (+1) . size
 -- Player
 ------------------------------------------------------------
 -- TODO This process could do with some refactoring. The walking-cases are a bad sign.
+timeBetweenPlayerCommands :: NominalDiffTime
+timeBetweenPlayerCommands = 0.1
+
 receiveFromPlayer
   :: (Binary msg, Show msg, FromJSON msg)
   => PlayerId
