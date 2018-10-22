@@ -4,9 +4,9 @@
 
 receive websocket connection requests
   -> p1 { connection1 }
-  -> p2 { connection2 } -> fork gamePlay
+  -> p2 { connection2 } -> fork playGame
 
-gamePlay (p1, p2) = 
+playGame (p1, p2) = 
   ch1 <- newChan playerMsg
   ch2 <- newChan playerMsg
   chg <- newChan gameState
@@ -25,9 +25,17 @@ http://hackage.haskell.org/package/websockets-0.12.5.2/docs/Network-WebSockets-C
   - receiveDataMessage :: Connection -> IO DataMessage
   - send :: Connection -> Message -> IO ()
 
+      DataMessage = Text ByteString (Maybe Text)
+                    Binary ByteString
+
 http://hackage.haskell.org/package/base-4.12.0.0/docs/Control-Concurrent-Chan.html
 
   - newChan :: IO (Chan a)
   - writeChan :: Chan a -> a -> IO ()
   - readChan :: Chan a -> IO a
   - dupChan :: Chan a -> IO (Chan a)
+
+
+## Game engine clean
+
+nettoyage games (end game, conn exceptions, ...)

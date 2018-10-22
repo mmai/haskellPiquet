@@ -47,6 +47,11 @@ type PlayerId = Int
 type Players  = Map PlayerId Connection
 type RoomId   = Int
 type Rooms    = Map RoomId Players
+-- data PlayerNet = PlayerNet { _id :: Int
+--                            , _conn :: Connection
+--                            , _fromChan :: Chan PlayerMsg
+--
+--                            }
 
 data NGames = NGames { pending :: Maybe Connection
                      , running :: Rooms
@@ -63,6 +68,10 @@ data PubSubMsg view = Sub PlayerId
 
 type SocketMsgView err gameView playerView = (Either (err, String) (gameView, [playerView]))
 type SocketMsgGame err state = (Either (err, String) state)
+
+getNextMapKey :: Map Int a -> Int
+getNextMapKey empty = 1
+getNextMapKey m = succ . fst . findMax $ m
 
 --------------------------------------------------
 
@@ -117,42 +126,48 @@ acceptClientConnection
      , Show view
      , Show msg
      )
-  => WS.PendingConnection -> State.StateT (PlayersChansMap msg) m ()
+  => WS.PendingConnection -> State.StateT NGames m ()
 acceptClientConnection pendingConnection = do
-  (_releaseKey, connection) <- lift $ allocate
+  (_releaseKey, conn) <- lift $ allocate
         (runStdoutLoggingT $ do
            logInfoN "P: New connection received."
            liftIO $ WS.acceptRequest pendingConnection)
         (\_ -> putStrLn "P: Leaves" )
-  liftIO $ WS.forkPingThread connection 30 -- ping the client every 30s
+  liftIO $ WS.forkPingThread conn 30 -- ping the client every 30s
+  manageConnection connection
+
+manageConnection :: Connection -> State.StateT NGames IO ()
+manageConnection conn =
   nGames <- State.get
-  let updatedGames = 
-        case (pending nGames) of
-          Nothing   -> nGames { pending = Just connection }
-          Just pendingConn -> nGames { pending = Nothing 
-                                     , running = appendGame pendingConn connection (running nGames)
-                                     }
-  let playerId = getNextPlayerId playersMap
-  broacasterToPlayerChan <- liftIO newChan
-  let playersMap' = insert playerId broacasterToPlayerChan playersMap
-  State.put playersMap'
-  let disconnectHandler :: WS.ConnectionException -> IO ()
-      disconnectHandler ex = do
-        liftIO . putStrLn $ "P: Socket has closed. Unsubscribing: " <> show ex
-        writeChan subscribeChan $ Unsub playerId 
-        writeChan gameMsgChan $ Leave playerId
-  liftIO $ do
-    _ <- forkIO $ receiveFromPlayer playerId gameMsgChan disconnectHandler connection
-    writeChan subscribeChan $ Sub playerId  -- record subscription
-    writeChan gameMsgChan $ Join playerId -- add new player to game
-    announceToPlayer connection broacasterToPlayerChan disconnectHandler
+  updatedGames <- liftIO $ case (pending nGames) of
+    Nothing          -> return nGames { pending = Just conn }
+    Just pendingConn -> do
+      players <- startGame [pendingConn, conn]
+      let rooms = running nGames
+      return nGames { pending = Nothing 
+                    , running = insert (getNextMapKey rooms) players rooms
+                    }
+  put updatedGames
 
-appendGame :: Connection -> Connection -> Rooms -> Rooms
-appendGame c1 c2 rooms = insert (getNextMapId rooms) newGame rooms where
-  newGame = insert 2 c2 $ insert 1 c1 $ empty 
+startGame :: [Connection] -> IO Players
+startGame conns = do
+  let players = fromList $ zip [1..] conns
+  _ <- forkIO (playGame players)
+  return players
 
-getNextMapId :: Map a -> Int
-getNextMapId = (+1) . size
+playGame :: Players -> IO ()
+playGame players = do
+  ch1 <- newChan 
+  ch2 <- newChan 
+  chg <- newChan
+  _ <- fork p1GameConn $ (players !! 1) ch1 chg
+  _ <- fork p2GameConn $ (players !! 2) ch2 chg
+  _ <- fork gameConn $ ch1 ch2 chg
+
+p1GameConn :: Connection -> Chan messPlayer -> Chan messGame -> IO ()
+p1GameConn conn ch1 chg = do
+  mess <- receiveDataMessage conn
+
 
 subscriptionBroadcaster
   :: (Show err, Binary err, Show gameView, Binary gameView, Show playerView, Binary playerView, TaggedView playerView)
@@ -170,14 +185,6 @@ subscriptionBroadcaster subscriptionRequests = iterateM_ handle Set.empty
           liftIO . putStrLn $ "B: removing: " <> show subscriber
           return (Set.delete subscriber subscribers)
 
-
--- getPlayerId :: PlayersChansMap msg -> Chan (EnginMsg msg) -> Maybe PlayerId
--- getPlayerId playersMap chan 
---   | chan `Bitmap.notMemberR` playersMap = Nothing
---   | otherwise                           = Just $ Bitmap.(!>) playersMap chan
-
--- getPlayerId :: PlayersChansMap msg -> Chan (EnginMsg msg) -> PlayerId
--- getPlayerId = Bitmap.(!>) 
 
 ------------------------------------------------------------
 -- Player
