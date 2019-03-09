@@ -137,7 +137,7 @@ acceptClientConnection pendingConnection = do
   manageConnection connection
 
 manageConnection :: Connection -> State.StateT NGames IO ()
-manageConnection conn =
+manageConnection conn = do
   nGames <- State.get
   updatedGames <- liftIO $ case (pending nGames) of
     Nothing          -> return nGames { pending = Just conn }
